@@ -53,6 +53,7 @@ struct CommentNode: Decodable, Sendable {
     var createdAt: String?
     var bodyText: String?
     var url: String?
+    var isMinimized: Bool?
 }
 
 struct ThreadNode: Decodable, Sendable {
@@ -186,7 +187,7 @@ extension PrReview {
 }
 
 extension PrComment {
-    init?(_ node: CommentNode) {
+    init?(_ node: CommentNode, isInResolvedThread: Bool = false) {
         guard let author = node.author, let id = node.id else { return nil }
         self.init(
             id: id,
@@ -194,7 +195,8 @@ extension PrComment {
             isBot: ReviewQueueCore.isBot(author),
             createdAt: node.createdAt ?? "",
             body: snippet(node.bodyText ?? ""),
-            url: node.url ?? ""
+            url: node.url ?? "",
+            isResolved: isInResolvedThread || node.isMinimized == true
         )
     }
 }
@@ -288,7 +290,8 @@ func myPr(_ candidate: Candidate, detail: DetailNode, me: String) -> MyPr {
     let pr = candidate.node
     let threads = detail.reviewThreads.nodes
     let checks = checksOf(detail)
-    let comments = (detail.comments.nodes + threads.flatMap(\.comments.nodes)).compactMap(PrComment.init)
+    let comments = detail.comments.nodes.compactMap { PrComment($0) }
+        + threads.flatMap { thread in thread.comments.nodes.compactMap { PrComment($0, isInResolvedThread: thread.isResolved) } }
     return MyPr(
         key: "\(candidate.repo.owner)/\(candidate.repo.name)#\(pr.number)",
         nodeId: pr.id ?? "",

@@ -1,5 +1,7 @@
 import Foundation
 
+/// A comment on one of your PRs. `isResolved` is true when its review thread is resolved or the comment is hidden
+/// (minimized) on GitHub, either of which means it needs nothing more from you.
 public struct PrComment: Equatable, Identifiable, Sendable {
     public let id: String
     public let author: String
@@ -7,6 +9,7 @@ public struct PrComment: Equatable, Identifiable, Sendable {
     public let createdAt: String
     public let body: String
     public let url: String
+    public var isResolved = false
 }
 
 public struct PrReview: Equatable, Sendable {
@@ -133,9 +136,12 @@ func isCounted(author: String, isBot: Bool, _ context: MyPrsContext) -> Bool {
         && (context.settings.isBotCommentsShown || !isBot)
 }
 
-/// Comments still waiting on you: counted (see `isCounted`) and not yet acknowledged, oldest first.
+/// Comments still waiting on you: counted (see `isCounted`), not resolved on GitHub and not yet acknowledged, oldest
+/// first.
 public func newComments(_ pr: MyPr, _ context: MyPrsContext) -> [PrComment] {
-    pr.comments.filter { !context.acknowledged.contains($0.id) && isCounted(author: $0.author, isBot: $0.isBot, context) }
+    pr.comments.filter {
+        !$0.isResolved && !context.acknowledged.contains($0.id) && isCounted(author: $0.author, isBot: $0.isBot, context)
+    }
 }
 
 /// Why a PR needs you, in card order: changes requested on the current head, new comments, failing CI, a conflict.

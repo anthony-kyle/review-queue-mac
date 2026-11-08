@@ -39,7 +39,7 @@ struct MyPrCardView: View {
     }
 
     private func commentRow(_ comment: PrComment) -> some View {
-        HStack(alignment: .top, spacing: 6) {
+        VStack(alignment: .leading, spacing: 4) {
             LinkButton(action: comment.url.isEmpty ? nil : { model.open(comment.url) }) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(comment.author)
@@ -55,13 +55,12 @@ struct MyPrCardView: View {
             }
             .help(comment.url.isEmpty ? "" : "Open comment on GitHub")
             HStack(spacing: 4) {
-                Button("No follow-up") { model.acknowledge([comment.id]) }
+                Button { model.acknowledge([comment.id]) } label: { Label("No follow-up", systemImage: "checkmark") }
                     .help("Stop counting this comment as new")
-                Button { model.update { $0.myPrs.setIgnored(comment.author, isOn: true) } } label: {
-                    Image(systemName: "person.crop.circle.badge.xmark")
+                Button { model.ignoreCommenter(comment.author) } label: {
+                    Label("Ignore \(comment.author)", systemImage: "person.crop.circle.badge.xmark")
                 }
-                .help("Never count comments from \(comment.author); undo in Settings")
-                .accessibilityLabel("Ignore \(comment.author)")
+                .help("Never count comments from \(comment.author); undo here or in Settings › My PRs")
             }
             .buttonStyle(.neutralGlass)
             .controlSize(.mini)

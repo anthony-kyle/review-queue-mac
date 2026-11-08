@@ -62,6 +62,7 @@ import Testing
             prComment("ignored", by: "noisy"),
             prComment("bot", by: "cursor[bot]", isBot: true),
             prComment("seen"),
+            prComment("resolved", isResolved: true),
             prComment("fresh"),
         ]
         let pr = makeMyPr(1, comments: comments)
@@ -146,10 +147,13 @@ import Testing
            {"id":"R1","author":{"login":"alice","__typename":"User"},"state":"CHANGES_REQUESTED","commit":{"oid":"abc"}},
            {"id":"R2","author":{"login":"me","__typename":"User"},"state":"COMMENTED","commit":{"oid":"abc"}}]},
          "reviewThreads":{"nodes":[{"isResolved":false,"comments":{"nodes":[
-           {"id":"T1","author":{"login":"alice","__typename":"User"},"createdAt":"2026-10-03T00:00:00Z","bodyText":"Why\nthis?","url":"https://github.com/acme/app/pull/7#discussion_r1"}]}}]},
+           {"id":"T1","author":{"login":"alice","__typename":"User"},"createdAt":"2026-10-03T00:00:00Z","bodyText":"Why\nthis?","url":"https://github.com/acme/app/pull/7#discussion_r1"}]}},
+           {"isResolved":true,"comments":{"nodes":[
+           {"id":"T2","author":{"login":"alice","__typename":"User"},"createdAt":"2026-10-04T00:00:00Z","bodyText":"Fixed","url":"https://github.com/acme/app/pull/7#discussion_r2"}]}}]},
          "comments":{"totalCount":2,"nodes":[
            {"id":"C1","author":{"login":"cursor","__typename":"Bot"},"createdAt":"2026-10-02T00:00:00Z","bodyText":"Bugbot found 1 issue","url":"https://github.com/acme/app/pull/7#issuecomment-1"},
-           {"id":"C2","author":null,"createdAt":"2026-10-02T01:00:00Z","bodyText":"ghost","url":"u"}]},
+           {"id":"C2","author":null,"createdAt":"2026-10-02T01:00:00Z","bodyText":"ghost","url":"u"},
+           {"id":"C3","author":{"login":"bob","__typename":"User"},"createdAt":"2026-10-02T02:00:00Z","bodyText":"Outdated","url":"https://github.com/acme/app/pull/7#issuecomment-3","isMinimized":true}]},
          "reviewRequests":{"nodes":[{"requestedReviewer":{"login":"bob"}},{"requestedReviewer":{"slug":"team-eng"}}]},
          "commits":{"nodes":[{"commit":{"statusCheckRollup":{"state":"FAILURE","contexts":{"nodes":[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"FAILURE"}]}}}}]}}
         """#
@@ -165,13 +169,14 @@ import Testing
         #expect(pr.isConflicting)
         #expect(pr.reviews.map(\.id) == ["R1"])
         #expect(pr.changesRequestedOnHead == ["alice"])
-        #expect(pr.comments.map(\.id) == ["C1", "T1"])
+        #expect(pr.comments.map(\.id) == ["C1", "C3", "T1", "T2"])
+        #expect(pr.comments.filter(\.isResolved).map(\.id) == ["C3", "T2"])
         #expect(pr.comments.first?.isBot == true)
-        #expect(pr.comments.last?.body == "Why this?")
+        #expect(pr.comments.first { $0.id == "T1" }?.body == "Why this?")
         #expect(pr.requestedReviewers == ["bob", "team-eng"])
         #expect(pr.failingChecks == ["test"])
         #expect(pr.unresolvedThreads == 1)
-        #expect(pr.latestCommentUrl == "u")
+        #expect(pr.latestCommentUrl == "https://github.com/acme/app/pull/7#issuecomment-3")
         #expect(pr.firstUnresolvedThreadUrl == "https://github.com/acme/app/pull/7#discussion_r1")
         #expect(myReasonOf(pr, myContext()) == "Changes requested by alice · 2 new comments · CI failing · Conflict")
     }

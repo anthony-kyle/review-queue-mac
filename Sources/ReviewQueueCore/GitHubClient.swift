@@ -91,7 +91,7 @@ public actor GitHubClient {
           \(checksField)
         }
         """
-    private static let commentFields = "id author { login __typename } createdAt bodyText url"
+    private static let commentFields = "id author { login __typename } createdAt bodyText url isMinimized"
     private static let checksField = "commits(last: 1) { nodes { commit { statusCheckRollup { state contexts(first: 50) { nodes { __typename ... on CheckRun { name status conclusion } ... on StatusContext { context state } } } } } } }"
 
     private var token: String?
