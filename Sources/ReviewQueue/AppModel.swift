@@ -38,8 +38,10 @@ final class AppModel {
     private(set) var myError: String?
     var expanded = Set(Block.allCases.filter(\.isOpenByDefault))
     var shownRows: [Block: Int] = [:]
+    var rowExpansion = RowExpansion()
     var myExpanded = Set(MyBlock.allCases.filter(\.isOpenByDefault))
     var myShownRows: [MyBlock: Int] = [:]
+    var myRowExpansion = RowExpansion()
     var settingsTab = SettingsTab.reviewQueue
 
     @ObservationIgnored private let github = GitHubClient()

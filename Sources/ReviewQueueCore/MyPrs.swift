@@ -32,6 +32,8 @@ public enum MyBlock: String, Codable, CodingKeyRepresentable, CaseIterable, Iden
     }
 
     public var isOpenByDefault: Bool { self != .drafts }
+
+    public var areRowsExpandedByDefault: Bool { self == .needsYou }
 }
 
 /// One of your own open PRs.
@@ -74,6 +76,9 @@ public struct MyPr: TrackedPr {
     }
 
     public var isConflicting: Bool { mergeable == "CONFLICTING" }
+
+    /// GitHub's review decision says approved, or someone approved and nobody's changes-request still stands.
+    public var isApproved: Bool { reviewDecision == "APPROVED" || (!approvedBy.isEmpty && changesRequestedBy.isEmpty) }
     public var ref: MyPrRef { MyPrRef(nodeId: nodeId, owner: owner, repo: repo, number: number, title: title, url: url) }
 }
 
@@ -151,12 +156,10 @@ public func myReasonOf(_ pr: MyPr, _ context: MyPrsContext) -> String? {
 }
 
 /// Places a PR: anything that needs you wins, drafts included; then approved and mergeable; then waiting; then drafts.
-/// Approved means GitHub's review decision says so, or someone approved and nobody's changes-request still stands.
 public func myBlockOf(_ pr: MyPr, _ context: MyPrsContext) -> MyBlock {
     if !needsYouReasons(pr, context).isEmpty { return .needsYou }
     if pr.isDraft { return .drafts }
-    let isApproved = pr.reviewDecision == "APPROVED" || (!pr.approvedBy.isEmpty && pr.changesRequestedBy.isEmpty)
-    return isApproved ? .ready : .waiting
+    return pr.isApproved ? .ready : .waiting
 }
 
 public func myBlockLists(_ prs: [MyPr], _ context: MyPrsContext, dismissals: Dismissals = [:]) -> [MyBlock: BlockList<MyPr>] {

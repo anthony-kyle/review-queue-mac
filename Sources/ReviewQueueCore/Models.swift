@@ -25,6 +25,8 @@ public enum Block: String, Codable, CodingKeyRepresentable, CaseIterable, Identi
 
     public var isOpenByDefault: Bool { self == .high || self == .needs }
 
+    public var areRowsExpandedByDefault: Bool { self == .high }
+
     /// The author list whose PRs always land in this block, for the two blocks that have one.
     public var peopleList: PeopleList? {
         switch self {
