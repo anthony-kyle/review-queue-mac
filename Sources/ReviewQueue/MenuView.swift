@@ -1,7 +1,7 @@
 import ReviewQueueCore
 import SwiftUI
 
-/// The review queue's menu bar window: header, error lines, then the collapsible blocks of PR cards.
+/// The review queue's menu bar window: header, error lines, then the collapsible blocks of PR rows.
 struct MenuView: View {
     @Bindable var model: AppModel
 
@@ -142,7 +142,8 @@ struct ScrollingBlocks<Content: View>: View {
     }
 }
 
-/// One collapsible block with its hidden-count and marked-done lines and paged cards, grouped in one glass container.
+/// One collapsible block with its hidden-count and marked-done lines and paged PR rows in a tight stack, grouped in one
+/// glass container so expanded cards share a sampling region.
 /// The title turns orange while a highlighted block has PRs.
 struct BlockSection<Pr: TrackedPr, Card: View>: View {
     let title: String
@@ -177,7 +178,7 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
                         .padding(.vertical, 6)
                 } else {
                     GlassEffectContainer(spacing: 0) {
-                        VStack(spacing: 8) {
+                        VStack(spacing: 2) {
                             ForEach(list.shown.prefix(limit)) { pr in
                                 card(pr)
                             }

@@ -1,8 +1,8 @@
 import ReviewQueueCore
 import SwiftUI
 
-/// One of your PRs: the shared card with why it needs you, its new comments (each with No follow-up and Ignore
-/// buttons), who is still requested, and the shared detail rows.
+/// One of your PRs as a shared row: where, why it needs you, the shared detail rows, who is still requested, and its
+/// new comments, each with No follow-up and Ignore buttons.
 struct MyPrCardView: View {
     let model: AppModel
     let pr: MyPr
@@ -12,17 +12,29 @@ struct MyPrCardView: View {
         let settings = model.settings
         let context = model.myContext
         let block = myBlockOf(pr, context)
-        PrCard(model: model, pr: pr, author: nil, tint: block.style.cardTint, onDone: { model.markDone(pr) }) {
-            if settings.shows(.reason), let reason = myReasonOf(pr, context) {
-                Text(reason).foregroundStyle(block == .needsYou ? .red : .orange).font(.callout.weight(.medium))
+        PrRow(
+            model: model,
+            pr: pr,
+            now: now,
+            tint: block.style.cardTint,
+            signal: mySignal(pr, context),
+            isExpanded: model.myRowExpansion.isExpanded(pr.key, byDefault: block.areRowsExpandedByDefault),
+            onToggle: { model.myRowExpansion.toggle(pr.key) },
+            onDone: { model.markDone(pr) }
+        ) {
+            StandardDetailRows(
+                model: model,
+                pr: pr,
+                settings: settings,
+                now: now,
+                reason: myReasonOf(pr, context).map { PrSignal($0, block == .needsYou ? .error : .warning) }
+            )
+            if settings.shows(.waiting), !pr.requestedReviewers.isEmpty {
+                CardField("Requested") { Text(pr.requestedReviewers.joined(separator: ", ")) }
             }
             ForEach(newComments(pr, context)) { comment in
                 commentRow(comment)
             }
-            if settings.shows(.waiting), !pr.requestedReviewers.isEmpty {
-                DetailRow(symbol: "person.crop.circle.badge.questionmark", label: "Requested", value: pr.requestedReviewers.joined(separator: ", "))
-            }
-            StandardDetailRows(model: model, pr: pr, settings: settings, now: now)
         }
     }
 

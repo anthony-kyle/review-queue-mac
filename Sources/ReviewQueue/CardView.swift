@@ -1,7 +1,8 @@
 import ReviewQueueCore
 import SwiftUI
 
-/// One review-queue PR: the shared card with its reason, the detail rows the person keeps on, and pin / mute buttons.
+/// One review-queue PR as a shared row: author, where, why and the detail rows the person keeps on, with pin / mute
+/// buttons beside Done. The author is teal, orange when pinned and grey when muted, and opens their GitHub profile.
 struct CardView: View {
     let model: AppModel
     let pr: QueuePr
@@ -9,165 +10,270 @@ struct CardView: View {
 
     var body: some View {
         let settings = model.settings
-        PrCard(model: model, pr: pr, author: pr.author, tint: blockOf(pr, settings).style.cardTint, onDone: { model.markDone(pr) }) {
-            if settings.shows(.reason) {
-                if let reason = reasonOf(pr, settings) {
-                    Text(reason).foregroundStyle(.orange).font(.callout.weight(.medium))
-                } else if pr.isReviewRequested {
-                    Text("Review requested").foregroundStyle(.blue).font(.callout.weight(.medium))
-                }
+        let block = blockOf(pr, settings)
+        PrRow(
+            model: model,
+            pr: pr,
+            now: now,
+            tint: block.style.cardTint,
+            signal: queueSignal(pr),
+            isExpanded: model.rowExpansion.isExpanded(pr.key, byDefault: block.areRowsExpandedByDefault),
+            onToggle: { model.rowExpansion.toggle(pr.key) },
+            onDone: { model.markDone(pr) }
+        ) {
+            CardField("Author") {
+                LinkText(pr.author, color: authorColor(settings)) { model.open("https://github.com/\(pr.author)") }
             }
-            StandardDetailRows(model: model, pr: pr, settings: settings, now: now)
+            StandardDetailRows(model: model, pr: pr, settings: settings, now: now, reason: reason(settings))
+        } accessory: {
             if settings.shows(.actions) {
                 authorActions(settings)
             }
         }
     }
 
+    private func authorColor(_ settings: QueueSettings) -> Color {
+        settings.highUsers.contains(pr.author) ? .orange : settings.lowUsers.contains(pr.author) ? .secondary : .teal
+    }
+
+    private func reason(_ settings: QueueSettings) -> PrSignal? {
+        if let reason = reasonOf(pr, settings) { return PrSignal(reason, .warning) }
+        return pr.isReviewRequested ? PrSignal("Review requested", .info) : nil
+    }
+
     private func authorActions(_ settings: QueueSettings) -> some View {
         let isPinned = settings.highUsers.contains(pr.author)
         let isMuted = settings.lowUsers.contains(pr.author)
-        return HStack(spacing: 14) {
-            Button {
+        return HStack(spacing: 10) {
+            iconButton(isPinned ? "star.fill" : "star", label: isPinned ? "Unpin author" : "Pin author") {
                 model.update { $0.togglePin(pr.author) }
-            } label: {
-                Label(isPinned ? "Unpin author" : "Pin author", systemImage: isPinned ? "star.fill" : "star")
             }
-            Button {
+            iconButton(isMuted ? "speaker.wave.2" : "speaker.slash", label: isMuted ? "Unmute author" : "Mute author") {
                 model.update { $0.toggleMute(pr.author) }
-            } label: {
-                Label(isMuted ? "Unmute author" : "Mute author", systemImage: isMuted ? "speaker.wave.2" : "speaker.slash")
             }
         }
         .buttonStyle(.plain)
         .foregroundStyle(.secondary)
         .font(.caption)
-        .padding(.top, 4)
+    }
+
+    private func iconButton(_ symbol: String, label: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Image(systemName: symbol) }
+            .help("\(label) \(pr.author)")
+            .accessibilityLabel("\(label) \(pr.author)")
     }
 }
 
-/// The card chrome both menus share: title, repo · story · author line, caller-supplied detail rows, and the Linear
-/// Review, GitHub Review and Done buttons in a fixed-width right column, on glass tinted by `tint`. `author` is nil on
-/// your own PRs, where it would always be you.
-struct PrCard<Pr: TrackedPr, Details: View>: View {
-    static var actionsWidth: CGFloat { 116 }
+/// One PR in a block, shared by both menus. Collapsed it is a one-line toggle: title, the most urgent `signal`, a CI
+/// dot and age since the last update. Expanded it is a glass card tinted by `tint`: a label grid of `details`, then
+/// GitHub Review, Linear Review, `accessory` and Done. `details` holds `CardField`s; any other view in it spans the
+/// grid's full width.
+struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
+    private static var indent: CGFloat { 20 }
 
     let model: AppModel
     let pr: Pr
-    let author: String?
+    let now: Date
     let tint: Color?
+    let signal: PrSignal?
+    let isExpanded: Bool
+    let onToggle: () -> Void
     let onDone: () -> Void
     @ViewBuilder let details: () -> Details
+    @ViewBuilder let accessory: () -> Accessory
+    @State private var isHovered = false
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 8) {
+            toggle
+            if isExpanded {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 10, verticalSpacing: 5) {
+                    details()
+                }
+                .font(.callout)
+                .padding(.leading, Self.indent)
+                actions
+                    .padding(.leading, Self.indent)
+            }
+        }
+        .padding(.horizontal, isExpanded ? 12 : 8)
+        .padding(.vertical, isExpanded ? 10 : 5)
+        .background(.fill.quaternary.opacity(isHovered && !isExpanded ? 1 : 0), in: .rect(cornerRadius: 8))
+        .glassCard(tint: tint, isShown: isExpanded)
+        .padding(.vertical, isExpanded ? 3 : 0)
+        .onHover { isHovered = $0 }
+    }
+
+    private var toggle: some View {
+        let ci = ciMark(pr.ci)
+        return Button {
+            withAnimation(.snappy) { onToggle() }
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .frame(width: Self.indent - 8)
                 Text("#\(pr.number) \(pr.title)")
-                    .font(.body.weight(.semibold))
+                    .fontWeight(isExpanded ? .semibold : .regular)
                     .lineLimit(1)
                     .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .help(pr.title)
-                sourceLine
-                details()
+                if !isExpanded {
+                    if let signal {
+                        Text(signal.text)
+                            .font(.caption)
+                            .foregroundStyle(signal.tone.color)
+                            .fixedSize()
+                    }
+                    Circle()
+                        .fill(ci.tone.color)
+                        .frame(width: 8, height: 8)
+                        .help("CI \(ci.text)")
+                }
+                Text(compactAge(pr.updatedAt, now: now))
+                    .font(.caption)
+                    .monospacedDigit()
+                    .foregroundStyle(.secondary)
+                    .frame(width: 28, alignment: .trailing)
+                    .help("Updated \(timeAgo(pr.updatedAt, now: now))")
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            actions
+            .contentShape(.rect)
         }
-        .glassCard(tint: tint)
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(isExpanded ? "Collapse" : "Expand") #\(pr.number) \(pr.title)")
+        .accessibilityValue(isExpanded ? "" : [signal?.text, "CI \(ci.text)"].compactMap(\.self).joined(separator: ", "))
     }
 
     private var actions: some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 6) {
+            Button("GitHub Review") { model.open(pr.url) }
+                .buttonStyle(.glassProminent)
+                .tint(.githubPurple)
             if let linear = pr.linearReviewUrl {
-                Button { model.open(linear) } label: { Text("Linear Review").frame(maxWidth: .infinity) }
+                Button("Linear Review") { model.open(linear) }
                     .buttonStyle(.glassProminent)
                     .tint(.linearIndigo)
             }
-            Button { model.open(pr.url) } label: { Text("GitHub Review").frame(maxWidth: .infinity) }
-                .buttonStyle(.glassProminent)
-                .tint(.githubPurple)
-            Button(action: onDone) { Label("Done", systemImage: "checkmark").frame(maxWidth: .infinity) }
+            Spacer(minLength: 8)
+            accessory()
+            Button(action: onDone) { Label("Done", systemImage: "checkmark") }
                 .buttonStyle(.ghost(.green))
                 .help("Hide until this PR next changes")
         }
         .controlSize(.small)
-        .frame(width: Self.actionsWidth)
-    }
-
-    private var sourceLine: some View {
-        HStack(spacing: 4) {
-            Button(pr.repo) { model.open("https://github.com/\(pr.owner)/\(pr.repo)") }
-                .buttonStyle(.link)
-            if let story = pr.storyId {
-                Text("·")
-                if let workspace = model.storyWorkspace {
-                    Button(story) { model.open("https://linear.app/\(workspace)/issue/\(story)") }.buttonStyle(.link)
-                } else {
-                    Text(story)
-                }
-            }
-            if let author {
-                Text("· \(author)")
-            }
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
-        .lineLimit(1)
     }
 }
 
-/// The detail rows both cards share, each behind its Card details toggle: waiting, approvals, comments, threads, CI and
-/// failing / neutral check names. The comments row opens the newest comment and the threads row the first unresolved
-/// thread; each is plain text when there is nothing to open.
+extension PrRow where Accessory == EmptyView {
+    init(
+        model: AppModel,
+        pr: Pr,
+        now: Date,
+        tint: Color?,
+        signal: PrSignal?,
+        isExpanded: Bool,
+        onToggle: @escaping () -> Void,
+        onDone: @escaping () -> Void,
+        @ViewBuilder details: @escaping () -> Details
+    ) {
+        self.init(
+            model: model,
+            pr: pr,
+            now: now,
+            tint: tint,
+            signal: signal,
+            isExpanded: isExpanded,
+            onToggle: onToggle,
+            onDone: onDone,
+            details: details,
+            accessory: { EmptyView() }
+        )
+    }
+}
+
+/// The grid lines both cards share, each behind its Card details toggle: where (repo and story), why it is listed,
+/// waiting, approvals, activity (comments and threads) and CI with failing / neutral check names. The comments part
+/// opens the newest comment and the threads part the first unresolved thread; each is plain text when there is nothing
+/// to open.
 struct StandardDetailRows<Pr: TrackedPr>: View {
     let model: AppModel
     let pr: Pr
     let settings: QueueSettings
     let now: Date
+    let reason: PrSignal?
 
     var body: some View {
+        CardField("Where") { whereValue }
+        if settings.shows(.reason), let reason {
+            CardField("Why") { Text(reason.text).foregroundStyle(reason.tone.color) }
+        }
         if settings.shows(.waiting) {
-            DetailRow(symbol: "clock", label: "Waiting", value: "opened \(timeAgo(pr.createdAt, now: now)) · updated \(timeAgo(pr.updatedAt, now: now))")
+            CardField("Waiting") { Text("opened \(timeAgo(pr.createdAt, now: now)) · updated \(timeAgo(pr.updatedAt, now: now))") }
         }
         if settings.shows(.approvals), !pr.approvals.isEmpty {
-            DetailRow(symbol: "checkmark.seal", label: "Approved by", value: pr.approvals.joined(separator: ", "), color: .green)
+            CardField("Approved") { Text(pr.approvals.joined(separator: ", ")).foregroundStyle(.green) }
         }
-        if settings.shows(.comments) {
-            let commentUrl = pr.commentCount > 0 ? pr.latestCommentUrl ?? pr.url : nil
-            DetailRow(
-                symbol: "bubble.left",
-                label: "Comments",
-                value: pr.commentCount == 1 ? "1 comment" : "\(pr.commentCount) comments",
-                color: commentUrl == nil ? .primary : .linkText,
-                action: commentUrl.map { url in { model.open(url) } }
-            )
+        if settings.shows(.comments) || settings.shows(.threads) {
+            CardField("Activity") { activityValue }
         }
-        if settings.shows(.threads) {
-            let isOpen = pr.unresolvedThreads > 0
-            DetailRow(
-                symbol: isOpen ? "exclamationmark.bubble" : "text.bubble",
-                label: "Unresolved threads",
-                value: "\(pr.unresolvedThreads) of \(pr.totalThreads) threads unresolved",
-                color: isOpen ? .orange : .secondary,
-                symbolColor: isOpen ? .orange : .secondary,
-                action: pr.firstUnresolvedThreadUrl.map { url in { model.open(url) } }
-            )
+        if settings.shows(.ci) || hasFailing || hasNeutral {
+            CardField("CI") { ciValue }
         }
-        if settings.shows(.ci) {
-            let ci = ciMark(pr.ci)
-            DetailRow(
-                symbol: ci.tone == .subtle ? "circle.dashed" : "circle.fill",
-                label: "CI",
-                value: "CI \(ci.text)",
-                color: ci.tone.color,
-                symbolColor: ci.tone.color
-            )
+    }
+
+    private var hasFailing: Bool { settings.shows(.failing) && !pr.failingChecks.isEmpty }
+    private var hasNeutral: Bool { settings.shows(.neutral) && !pr.neutralChecks.isEmpty }
+
+    private var whereValue: some View {
+        HStack(spacing: 4) {
+            LinkText(pr.repo, color: .primary) { model.open("https://github.com/\(pr.owner)/\(pr.repo)") }
+            if let story = pr.storyId {
+                Text("·").foregroundStyle(.secondary)
+                LinkText(story, action: model.storyWorkspace.map { workspace in { model.open("https://linear.app/\(workspace)/issue/\(story)") } })
+            }
         }
-        if settings.shows(.failing), !pr.failingChecks.isEmpty {
-            DetailRow(symbol: "xmark.circle", label: "Failing checks", value: nameList(pr.failingChecks), color: .red, symbolColor: .red)
+        .lineLimit(1)
+    }
+
+    private var activityValue: some View {
+        HStack(spacing: 4) {
+            if settings.shows(.comments) {
+                let url = pr.commentCount > 0 ? pr.latestCommentUrl ?? pr.url : nil
+                LinkText(pr.commentCount == 1 ? "1 comment" : "\(pr.commentCount) comments", action: url.map { url in { model.open(url) } })
+            }
+            if settings.shows(.comments), settings.shows(.threads) {
+                Text("·").foregroundStyle(.secondary)
+            }
+            if settings.shows(.threads) {
+                if pr.unresolvedThreads > 0 {
+                    LinkText(
+                        "\(pr.unresolvedThreads) of \(pr.totalThreads) threads unresolved",
+                        color: .orange,
+                        action: pr.firstUnresolvedThreadUrl.map { url in { model.open(url) } }
+                    )
+                } else {
+                    Text("no open threads").foregroundStyle(.secondary)
+                }
+            }
         }
-        if settings.shows(.neutral), !pr.neutralChecks.isEmpty {
-            DetailRow(symbol: "circle.dashed", label: "Neutral checks", value: "\(nameList(pr.neutralChecks)) (neutral)", color: .blue)
+        .lineLimit(1)
+    }
+
+    private var ciValue: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if settings.shows(.ci) {
+                let ci = ciMark(pr.ci)
+                Text(ci.text).foregroundStyle(ci.tone.color)
+            }
+            if hasFailing {
+                Text(nameList(pr.failingChecks)).foregroundStyle(.red)
+            }
+            if hasNeutral {
+                Text("\(nameList(pr.neutralChecks)) (neutral)").foregroundStyle(.blue)
+            }
         }
     }
 }

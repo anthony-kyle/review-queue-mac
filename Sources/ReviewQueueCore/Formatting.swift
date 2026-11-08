@@ -2,20 +2,30 @@ import Foundation
 
 private let maxCheckNames = 3
 
-/// Coarse human age of an ISO time relative to `now`: `just now`, `12m ago`, `5h ago`, `3d ago`, `6w ago`.
-public func timeAgo(_ iso: String, now: Date) -> String {
+/// Compact age of an ISO time relative to `now`, for tight columns: `now`, `12m`, `5h`, `3d`, `6w`. Empty when `iso`
+/// doesn't parse.
+public func compactAge(_ iso: String, now: Date) -> String {
     guard let date = try? Date(iso, strategy: .iso8601) else { return "" }
     let minutes = max(0, Int((now.timeIntervalSince(date) / 60).rounded(.down)))
-    if minutes < 1 { return "just now" }
-    if minutes < 60 { return "\(minutes)m ago" }
+    if minutes < 1 { return "now" }
+    if minutes < 60 { return "\(minutes)m" }
     let hours = minutes / 60
-    if hours < 24 { return "\(hours)h ago" }
+    if hours < 24 { return "\(hours)h" }
     let days = hours / 24
-    return days < 14 ? "\(days)d ago" : "\(days / 7)w ago"
+    return days < 14 ? "\(days)d" : "\(days / 7)w"
 }
 
-public enum Tone: Sendable {
-    case success, error, warning, subtle
+/// Coarse human age of an ISO time relative to `now`: `just now`, `12m ago`, `5h ago`, `3d ago`, `6w ago`.
+public func timeAgo(_ iso: String, now: Date) -> String {
+    switch compactAge(iso, now: now) {
+    case "": ""
+    case "now": "just now"
+    case let age: "\(age) ago"
+    }
+}
+
+public enum Tone: Equatable, Sendable {
+    case success, error, warning, info, subtle
 }
 
 public func ciMark(_ state: String?) -> (text: String, tone: Tone) {

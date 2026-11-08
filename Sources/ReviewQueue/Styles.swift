@@ -38,6 +38,7 @@ extension Tone {
         case .success: .green
         case .error: .red
         case .warning: .orange
+        case .info: .blue
         case .subtle: .secondary
         }
     }
@@ -79,10 +80,10 @@ extension ButtonStyle where Self == GhostButtonStyle {
 }
 
 extension View {
-    /// Rounded clear Liquid Glass behind a card, tinted by its state; untinted when `tint` is nil.
-    func glassCard(tint: Color?) -> some View {
-        padding(12)
-            .glassEffect(.clear.tint(tint?.opacity(0.2)), in: .rect(cornerRadius: 16))
+    /// Rounded clear Liquid Glass behind a card, tinted by its state; untinted when `tint` is nil and absent while
+    /// `isShown` is false, so a row can grow into a card without changing view identity.
+    func glassCard(tint: Color?, isShown: Bool = true) -> some View {
+        glassEffect(isShown ? .clear.tint(tint?.opacity(0.2)) : .identity, in: .rect(cornerRadius: 16))
     }
 }
 
@@ -103,29 +104,46 @@ struct LinkButton<Label: View>: View {
     }
 }
 
-/// One card detail: a secondary SF Symbol, then the value, underlined as a link when `action` is set. `label` names the
-/// row for tooltips and VoiceOver, since the symbol replaces it on screen.
-struct DetailRow: View {
-    let symbol: String
-    let label: String
-    let value: String
-    var color: Color = .primary
-    var symbolColor: Color = .secondary
-    var action: (() -> Void)? = nil
+/// Card text that opens a page: link-coloured unless `color` says otherwise, or plain primary text when `action` is
+/// nil.
+struct LinkText: View {
+    let text: String
+    let color: Color?
+    let action: (() -> Void)?
+
+    init(_ text: String, color: Color? = nil, action: (() -> Void)? = nil) {
+        self.text = text
+        self.color = color
+        self.action = action
+    }
 
     var body: some View {
         LinkButton(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 6) {
-                Image(systemName: symbol)
-                    .foregroundStyle(symbolColor)
-                    .frame(width: 16)
-                Text(value).foregroundStyle(color).underline(action != nil)
-            }
+            Text(text).foregroundStyle(color ?? (action == nil ? .primary : .linkText))
         }
-        .font(.callout)
-        .help(label)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) \(value)")
+    }
+}
+
+/// One line of an expanded card's label grid: the secondary label in a fixed-width column, then the value.
+struct CardField<Value: View>: View {
+    private static var labelWidth: CGFloat { 80 }
+
+    let label: String
+    @ViewBuilder let value: () -> Value
+
+    init(_ label: String, @ViewBuilder value: @escaping () -> Value) {
+        self.label = label
+        self.value = value
+    }
+
+    var body: some View {
+        GridRow {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: Self.labelWidth, alignment: .leading)
+            value()
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 }
 
