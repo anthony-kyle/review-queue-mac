@@ -12,6 +12,15 @@ struct MyPrsMenuView: View {
                 ErrorBanner(message: "GitHub: \(error)", color: .red)
             }
             LinearErrorLine(model: model)
+            if let ignored = model.lastIgnored {
+                HStack(spacing: 6) {
+                    Image(systemName: "person.crop.circle.badge.xmark").foregroundStyle(.secondary)
+                    Text("Ignoring \(ignored)'s comments")
+                    Spacer()
+                    LinkButton(action: model.undoIgnore) { Text("Undo").foregroundStyle(Color.linkText) }
+                }
+                .font(.callout)
+            }
             ScrollingBlocks { blocks }
         }
     }

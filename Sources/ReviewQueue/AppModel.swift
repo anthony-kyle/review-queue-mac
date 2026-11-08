@@ -118,6 +118,20 @@ final class AppModel {
         saveAcknowledged(acknowledged.union(commentIds))
     }
 
+    /// The commenter most recently ignored from a card, offered back with Undo until the next refresh.
+    private(set) var lastIgnored: String?
+
+    func ignoreCommenter(_ login: String) {
+        update { $0.myPrs.setIgnored(login, isOn: true) }
+        lastIgnored = login
+    }
+
+    func undoIgnore() {
+        guard let login = lastIgnored else { return }
+        update { $0.myPrs.setIgnored(login, isOn: false) }
+        lastIgnored = nil
+    }
+
     private func saveDismissals(_ next: Dismissals) {
         dismissals = next
         store.save(next, to: JSONStore.dismissals)
@@ -301,6 +315,7 @@ final class AppModel {
             availableTeams = teams
             error = nil
             fetchedAt = Date()
+            lastIgnored = nil
             if !current.teams.isEmpty { announce(fetched.filter { !isDismissed($0, dismissals) }) }
         case let .failure(failure):
             error = failure.localizedDescription

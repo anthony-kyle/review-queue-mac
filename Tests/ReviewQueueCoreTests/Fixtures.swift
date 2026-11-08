@@ -101,8 +101,8 @@ func makeMyPr(
     )
 }
 
-func prComment(_ id: String, by author: String = "alice", isBot: Bool = false, body: String = "Please rename this") -> PrComment {
-    PrComment(id: id, author: author, isBot: isBot, createdAt: "2026-10-02T00:00:00Z", body: body, url: "https://github.com/c/\(id)")
+func prComment(_ id: String, by author: String = "alice", isBot: Bool = false, body: String = "Please rename this", isResolved: Bool = false) -> PrComment {
+    PrComment(id: id, author: author, isBot: isBot, createdAt: "2026-10-02T00:00:00Z", body: body, url: "https://github.com/c/\(id)", isResolved: isResolved)
 }
 
 func prReview(_ id: String, by author: String, _ state: String, oid: String = "head", isBot: Bool = false) -> PrReview {
