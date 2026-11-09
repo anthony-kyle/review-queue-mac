@@ -2,6 +2,11 @@
 
 A menu bar app with two menu bar items in one process:
 
+<p style="display: flex; flex-wrap: 0; width 100%; align-content: flex-start;">
+<img style="width: 49%" alt="My PR's" src="https://github.com/user-attachments/assets/21d761d8-5c24-40b6-94d5-f48f3d104972" />
+<img style="width: 49%" alt="Review Queue" src="https://github.com/user-attachments/assets/92b75ebc-58c6-41bd-81e3-59712a9b63e1" />
+</p>
+
 - **Review queue**: teammates' open GitHub PRs that are waiting on your review, grouped into High priority, Needs review, Waiting on author, Approved by you, Drafts and Low priority. It is a native port of the `review-queue` Claude Code mod: the same GitHub queries, block rules, card details and settings, plus notifications.
 - **My PRs**: your own open PRs across every org, grouped by what they need from you, with notifications on review activity, CI, conflicts and merges.
 
