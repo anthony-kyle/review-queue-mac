@@ -26,6 +26,11 @@ struct CardView: View {
             }
             StandardDetailRows(model: model, pr: pr, settings: settings, now: now, reason: reason(settings))
         } accessory: {
+            if let since = pr.sinceMyReviewUrl {
+                Button("Since your review") { model.open(since) }
+                    .buttonStyle(.ghost(.githubPurple))
+                    .help("Files changed since the commit you last reviewed")
+            }
             if settings.shows(.actions) {
                 authorActions(settings)
             }
@@ -65,7 +70,7 @@ struct CardView: View {
 }
 
 /// One PR in a block, shared by both menus. Collapsed it is a one-line toggle: title, the most urgent `signal`, a CI
-/// dot and age since the last update. Expanded it is a glass card tinted by `tint`: a label grid of `details`, then
+/// dot and age since the PR was opened, matching the blocks' sort. Expanded it is a glass card tinted by `tint`: a label grid of `details`, then
 /// GitHub Review, Linear Review, `accessory` and Done. `details` holds `CardField`s; any other view in it spans the
 /// grid's full width.
 struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
@@ -133,12 +138,12 @@ struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
                         .frame(width: 8, height: 8)
                         .help("CI \(ci.text)")
                 }
-                Text(compactAge(pr.updatedAt, now: now))
+                Text(compactAge(pr.createdAt, now: now))
                     .font(.caption)
                     .monospacedDigit()
                     .foregroundStyle(.secondary)
                     .frame(width: 28, alignment: .trailing)
-                    .help("Updated \(timeAgo(pr.updatedAt, now: now))")
+                    .help("Opened \(timeAgo(pr.createdAt, now: now))")
             }
             .contentShape(.rect)
         }

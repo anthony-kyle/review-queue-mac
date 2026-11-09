@@ -21,6 +21,16 @@ import Testing
         #expect(myReviewOf(commentedAfter, me: "me", isRequested: false) == .changesPending)
     }
 
+    @Test func sinceMyReviewLinksReviewedCommitToHeadOnlyOnceHeadMoves() {
+        let url = "https://github.com/o/r/pull/1"
+        #expect(sinceMyReviewUrlOf(detail(reviews: [review("me", "CHANGES_REQUESTED", oid: "old")], headRefOid: "new"), me: "me", url: url) == "\(url)/files/old..new")
+        #expect(sinceMyReviewUrlOf(detail(reviews: [review("me", "APPROVED", oid: "old")], headRefOid: "new"), me: "me", url: url) == "\(url)/files/old..new")
+        #expect(sinceMyReviewUrlOf(detail(reviews: [review("me", "CHANGES_REQUESTED")]), me: "me", url: url) == nil)
+        #expect(sinceMyReviewUrlOf(detail(reviews: [review("me", "APPROVED", oid: "old"), review("me", "DISMISSED")], headRefOid: "new"), me: "me", url: url) == nil)
+        #expect(sinceMyReviewUrlOf(detail(reviews: [review("me", "COMMENTED", oid: "old")], headRefOid: "new"), me: "me", url: url) == nil)
+        #expect(sinceMyReviewUrlOf(detail(reviews: [review("other", "APPROVED", oid: "old")], headRefOid: "new"), me: "me", url: url) == nil)
+    }
+
     @Test func myReviewReadsApprovalDismissalAndNoReview() {
         #expect(myReviewOf(detail(), me: "me", isRequested: false) == .none)
         #expect(myReviewOf(detail(reviews: [review("me", "APPROVED")]), me: "me", isRequested: false) == .approved)

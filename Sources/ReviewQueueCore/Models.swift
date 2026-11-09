@@ -135,6 +135,7 @@ public struct QueuePr: Codable, Equatable, Identifiable, Sendable {
     public let updatedAt: String
     public var latestCommentUrl: String? = nil
     public var firstUnresolvedThreadUrl: String? = nil
+    public var sinceMyReviewUrl: String? = nil
 
     public var id: String { key }
 }

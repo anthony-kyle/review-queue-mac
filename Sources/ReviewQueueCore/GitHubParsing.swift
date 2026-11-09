@@ -156,10 +156,22 @@ public func storyIdOf(_ branch: String, _ title: String) -> String? {
 /// Your standing on a PR from your last decisive review. Changes count as addressed once the head moved past the
 /// reviewed commit or the author re-requested you, since GitHub drops you from the requests when you submit.
 func myReviewOf(_ detail: DetailNode, me: String, isRequested: Bool) -> MyReview {
-    let last = detail.reviews.nodes.last { $0.author?.login == me && decisiveStates.contains($0.state) }
-    guard let last, last.state != "DISMISSED" else { return .none }
+    guard let last = myLastStandingReview(detail, me: me) else { return .none }
     if last.state == "APPROVED" { return .approved }
     return isRequested || last.commit?.oid != detail.headRefOid ? .changesAddressed : .changesPending
+}
+
+/// Your latest approval or changes-request, or nil when you have none or your latest decisive review was dismissed.
+func myLastStandingReview(_ detail: DetailNode, me: String) -> ReviewNode? {
+    let last = detail.reviews.nodes.last { $0.author?.login == me && decisiveStates.contains($0.state) }
+    return last?.state == "DISMISSED" ? nil : last
+}
+
+/// GitHub's files view limited to commits pushed since your standing review, or nil when the head hasn't moved. After
+/// a force-push GitHub may not resolve the reviewed commit; the full GitHub Review link stays as the fallback.
+func sinceMyReviewUrlOf(_ detail: DetailNode, me: String, url: String) -> String? {
+    guard let reviewed = myLastStandingReview(detail, me: me)?.commit?.oid, reviewed != detail.headRefOid else { return nil }
+    return "\(url)/files/\(reviewed)..\(detail.headRefOid)"
 }
 
 /// Other humans whose latest decisive review is an approval. A later changes-request or dismissal withdraws it.
@@ -280,7 +292,8 @@ func queuePr(_ candidate: Candidate, detail: DetailNode, me: String) -> QueuePr 
         createdAt: pr.createdAt,
         updatedAt: pr.updatedAt,
         latestCommentUrl: latestCommentUrlOf(detail),
-        firstUnresolvedThreadUrl: firstUnresolvedThreadUrlOf(detail)
+        firstUnresolvedThreadUrl: firstUnresolvedThreadUrlOf(detail),
+        sinceMyReviewUrl: sinceMyReviewUrlOf(detail, me: me, url: pr.url)
     )
 }
 
