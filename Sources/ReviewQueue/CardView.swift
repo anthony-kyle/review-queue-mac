@@ -200,7 +200,7 @@ extension PrRow where Accessory == EmptyView {
 }
 
 /// The grid lines both cards share, each behind its Card details toggle: where (repo and story), why it is listed,
-/// waiting, approvals, activity (comments and threads) and CI with failing / neutral check names. The comments part
+/// waiting, approvals, changes-requests, activity (comments and threads) and CI with failing / neutral check names. The comments part
 /// opens the newest comment and the threads part the first unresolved thread; each is plain text when there is nothing
 /// to open.
 struct StandardDetailRows<Pr: TrackedPr>: View {
@@ -220,6 +220,9 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
         }
         if settings.shows(.approvals), !pr.approvals.isEmpty {
             CardField("Approved") { Text(pr.approvals.joined(separator: ", ")).foregroundStyle(.green) }
+        }
+        if settings.shows(.changes), !pr.changesRequests.isEmpty {
+            CardField("Changes") { Text(pr.changesRequests.joined(separator: ", ")).foregroundStyle(.red) }
         }
         if settings.shows(.comments) || settings.shows(.threads) {
             CardField("Activity") { activityValue }

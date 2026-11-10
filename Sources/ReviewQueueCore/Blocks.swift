@@ -15,18 +15,45 @@ public func blockOf(_ pr: QueuePr, _ settings: QueueSettings) -> Block {
     return .needs
 }
 
-/// A block's sort and approved-by-others filter. Only High priority shows PRs someone else already approved by default,
-/// since those still need you there; elsewhere another approval usually means your review isn't the blocker.
+/// A block's sort and others'-review filters. Only High priority shows PRs someone else already approved or requested
+/// changes on by default, since those still need you there; elsewhere another decisive review usually means your
+/// review isn't the blocker.
 public func blockPrefsOf(_ settings: QueueSettings, _ block: Block) -> BlockPrefs {
-    settings.blockPrefs[block] ?? BlockPrefs(sort: .oldest, isOthersApprovedShown: block == .high)
+    settings.blockPrefs[block] ?? BlockPrefs(sort: .oldest, isOthersApprovedShown: block == .high, isOthersChangesRequestedShown: block == .high)
+}
+
+/// PRs a block's filters dropped, by reason. A PR both filters drop counts under each.
+public struct HiddenCounts: Equatable, Sendable {
+    public var approved: Int
+    public var changesRequested: Int
+
+    public init(approved: Int = 0, changesRequested: Int = 0) {
+        self.approved = approved
+        self.changesRequested = changesRequested
+    }
+
+    public var isEmpty: Bool { approved == 0 && changesRequested == 0 }
+
+    /// The block's hidden line, e.g. `2 approved by others, 1 changes requested by others hidden`; nil when none.
+    public var note: String? {
+        let parts = [
+            approved > 0 ? "\(approved) approved by others" : nil,
+            changesRequested > 0 ? "\(changesRequested) changes requested by others" : nil,
+        ].compactMap(\.self)
+        return parts.isEmpty ? nil : "\(parts.joined(separator: ", ")) hidden"
+    }
+
+    static func + (a: HiddenCounts, b: HiddenCounts) -> HiddenCounts {
+        HiddenCounts(approved: a.approved + b.approved, changesRequested: a.changesRequested + b.changesRequested)
+    }
 }
 
 public struct BlockList<Pr: TrackedPr>: Equatable, Sendable {
     public let shown: [Pr]
-    public let hiddenCount: Int
+    public var hidden = HiddenCounts()
     public var dismissed: [Pr] = []
 
-    public static var empty: BlockList { BlockList(shown: [], hiddenCount: 0) }
+    public static var empty: BlockList { BlockList(shown: []) }
 }
 
 /// PRs marked done by hand, keyed by PR with the `updatedAt` they were marked at. A mark holds only while the PR is
@@ -48,18 +75,25 @@ public func blockLists(_ prs: [QueuePr], _ settings: QueueSettings, dismissals: 
     Dictionary(uniqueKeysWithValues: Block.allCases.map { block in
         let prefs = blockPrefsOf(settings, block)
         let all = prs.filter { blockOf($0, settings) == block }
-        return (block, blockList(all, sort: prefs.sort, dismissals: dismissals) { prefs.isOthersApprovedShown || $0.approvedByOthers.isEmpty })
+        return (block, blockList(all, sort: prefs.sort, dismissals: dismissals) { pr in
+            HiddenCounts(
+                approved: !prefs.isOthersApprovedShown && !pr.approvedByOthers.isEmpty ? 1 : 0,
+                changesRequested: !prefs.isOthersChangesRequestedShown && !pr.changesRequestedByOthers.isEmpty ? 1 : 0
+            )
+        })
     })
 }
 
-/// One block's PRs: marked-done ones set apart, the rest kept when `isShown` and sorted by opening time. `hiddenCount`
-/// is what `isShown` dropped.
-func blockList<P: TrackedPr>(_ all: [P], sort: BlockSort, dismissals: Dismissals, isShown: (P) -> Bool = { _ in true }) -> BlockList<P> {
+/// One block's PRs: marked-done ones set apart, the rest kept when `hiding` names no reason to drop them and sorted by
+/// opening time. `hidden` tallies those reasons over the PRs not marked done.
+func blockList<P: TrackedPr>(_ all: [P], sort: BlockSort, dismissals: Dismissals, hiding: (P) -> HiddenCounts = { _ in HiddenCounts() }) -> BlockList<P> {
     let dismissed = all.filter { isDismissed($0, dismissals) }
-    let shown = all
-        .filter { !isDismissed($0, dismissals) && isShown($0) }
+    let active = all.filter { !isDismissed($0, dismissals) }.map { ($0, hiding($0)) }
+    let shown = active
+        .filter { $0.1.isEmpty }
+        .map(\.0)
         .sorted { sort == .oldest ? $0.createdAt < $1.createdAt : $0.createdAt > $1.createdAt }
-    return BlockList(shown: shown, hiddenCount: all.count - shown.count - dismissed.count, dismissed: dismissed)
+    return BlockList(shown: shown, hidden: active.map(\.1).reduce(HiddenCounts(), +), dismissed: dismissed)
 }
 
 public enum MenuTone: Equatable, Sendable {

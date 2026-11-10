@@ -26,7 +26,7 @@ import Testing
         ]
         var settings = QueueSettings()
         #expect(blockLists(prs, settings)[.needs]?.shown.map(\.number) == [2, 1, 3])
-        settings.blockPrefs[.needs] = BlockPrefs(sort: .newest, isOthersApprovedShown: false)
+        settings.blockPrefs[.needs] = BlockPrefs(sort: .newest, isOthersApprovedShown: false, isOthersChangesRequestedShown: false)
         #expect(blockLists(prs, settings)[.needs]?.shown.map(\.number) == [3, 1, 2])
     }
 
@@ -39,16 +39,43 @@ import Testing
             makePr(3, author: "pinned", approvedByOthers: ["alice"]),
         ]
         let lists = blockLists(prs, settings)
-        #expect(lists[.needs] == BlockList(shown: [prs[1]], hiddenCount: 1))
-        #expect(lists[.high] == BlockList(shown: [prs[2]], hiddenCount: 0))
-        #expect(blockPrefsOf(settings, .high) == BlockPrefs(sort: .oldest, isOthersApprovedShown: true))
-        #expect(blockPrefsOf(settings, .low) == BlockPrefs(sort: .oldest, isOthersApprovedShown: false))
+        #expect(lists[.needs] == BlockList(shown: [prs[1]], hidden: HiddenCounts(approved: 1)))
+        #expect(lists[.high] == BlockList(shown: [prs[2]]))
+        #expect(blockPrefsOf(settings, .high) == BlockPrefs(sort: .oldest, isOthersApprovedShown: true, isOthersChangesRequestedShown: true))
+        #expect(blockPrefsOf(settings, .low) == BlockPrefs(sort: .oldest, isOthersApprovedShown: false, isOthersChangesRequestedShown: false))
 
-        settings.blockPrefs[.needs] = BlockPrefs(sort: .oldest, isOthersApprovedShown: true)
-        settings.blockPrefs[.high] = BlockPrefs(sort: .oldest, isOthersApprovedShown: false)
+        settings.blockPrefs[.needs] = BlockPrefs(sort: .oldest, isOthersApprovedShown: true, isOthersChangesRequestedShown: true)
+        settings.blockPrefs[.high] = BlockPrefs(sort: .oldest, isOthersApprovedShown: false, isOthersChangesRequestedShown: false)
         let flipped = blockLists(prs, settings)
         #expect(flipped[.needs]?.shown.map(\.number) == [1, 2])
-        #expect(flipped[.high] == BlockList(shown: [], hiddenCount: 1))
+        #expect(flipped[.high] == BlockList(shown: [], hidden: HiddenCounts(approved: 1)))
+    }
+
+    @Test func changesRequestedByOthersHideOnTheirOwnToggle() {
+        var settings = QueueSettings()
+        settings.highUsers = ["pinned"]
+        let prs = [
+            makePr(1, changesRequestedByOthers: ["bob"]),
+            makePr(2),
+            makePr(3, approvedByOthers: ["alice"], changesRequestedByOthers: ["bob"]),
+            makePr(4, author: "pinned", changesRequestedByOthers: ["bob"]),
+        ]
+        let lists = blockLists(prs, settings)
+        #expect(lists[.needs] == BlockList(shown: [prs[1]], hidden: HiddenCounts(approved: 1, changesRequested: 2)))
+        #expect(lists[.needs]?.hidden.note == "1 approved by others, 2 changes requested by others hidden")
+        #expect(lists[.high]?.shown == [prs[3]])
+
+        settings.blockPrefs[.needs] = BlockPrefs(sort: .oldest, isOthersApprovedShown: false, isOthersChangesRequestedShown: true)
+        let changesShown = blockLists(prs, settings)
+        #expect(changesShown[.needs] == BlockList(shown: [prs[0], prs[1]], hidden: HiddenCounts(approved: 1)))
+        #expect(changesShown[.needs]?.hidden.note == "1 approved by others hidden")
+    }
+
+    @Test func blockPrefsSavedBeforeTheChangesFilterFollowTheApprovalsFilter() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(BlockPrefs.self, from: Data(json.utf8)) }
+        #expect(try decode(#"{"sort":"oldest","isOthersApprovedShown":true}"#).isOthersChangesRequestedShown)
+        #expect(try !decode(#"{"sort":"newest","isOthersApprovedShown":false}"#).isOthersChangesRequestedShown)
+        #expect(try !decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isOthersChangesRequestedShown":false}"#).isOthersChangesRequestedShown)
     }
 
     @Test func everyBlockIsPresentEvenWhenEmpty() {
@@ -82,7 +109,7 @@ import Testing
         #expect(settings.repoAccess == .owned)
         #expect(settings.repeatHighReminders)
         var roundTrip = settings
-        roundTrip.blockPrefs[.low] = BlockPrefs(sort: .newest, isOthersApprovedShown: true)
+        roundTrip.blockPrefs[.low] = BlockPrefs(sort: .newest, isOthersApprovedShown: true, isOthersChangesRequestedShown: true)
         #expect(try JSONDecoder().decode(QueueSettings.self, from: JSONEncoder().encode(roundTrip)) == roundTrip)
     }
 
@@ -114,7 +141,7 @@ import Testing
     let lists = blockLists([a, b], QueueSettings(), dismissals: marks)
     #expect(lists[.needs]?.shown.map(\.number) == [2])
     #expect(lists[.needs]?.dismissed.map(\.number) == [1])
-    #expect(lists[.needs]?.hiddenCount == 0)
+    #expect(lists[.needs]?.hidden.isEmpty == true)
     #expect(!isDismissed(changed, marks))
     #expect(blockLists([changed, b], QueueSettings(), dismissals: marks)[.needs]?.shown.count == 2)
     #expect(prunedDismissals(marks, prs: [changed, b]).isEmpty)

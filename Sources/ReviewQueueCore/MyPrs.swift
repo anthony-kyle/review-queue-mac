@@ -70,6 +70,7 @@ public struct MyPr: TrackedPr {
 
     public var id: String { key }
     public var approvals: [String] { approvedBy }
+    public var changesRequests: [String] { changesRequestedBy }
     public var approvedBy: [String] { latestDecisive(reviews).filter { $0.state == "APPROVED" }.map(\.author) }
     public var changesRequestedBy: [String] { latestDecisive(reviews).filter { $0.state == "CHANGES_REQUESTED" }.map(\.author) }
 

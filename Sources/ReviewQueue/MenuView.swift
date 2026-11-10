@@ -36,7 +36,7 @@ struct MenuView: View {
                         set: { isOpen in if isOpen { model.expanded.insert(block) } else { model.expanded.remove(block) } }
                     ),
                     limit: Binding(get: { model.shownRows[block] ?? AppModel.pageRows }, set: { model.shownRows[block] = $0 }),
-                    hiddenNote: list.hiddenCount > 0 ? "\(list.hiddenCount) approved by others hidden" : nil,
+                    hiddenNote: list.hidden.note,
                     onUndo: { model.restore($0) }
                 ) { pr in
                     CardView(model: model, pr: pr, now: now)
