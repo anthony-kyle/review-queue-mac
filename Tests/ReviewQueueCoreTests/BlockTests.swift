@@ -62,7 +62,7 @@ import Testing
         ]
         let lists = blockLists(prs, settings)
         #expect(lists[.needs] == BlockList(shown: [prs[1]], hidden: HiddenCounts(approved: 1, changesRequested: 2)))
-        #expect(lists[.needs]?.hidden.note == "1 approved by others, 2 changes requested by others hidden")
+        #expect(lists[.needs]?.hidden.note == "1 approved by others, 2 with changes requested by others hidden")
         #expect(lists[.high]?.shown == [prs[3]])
 
         settings.blockPrefs[.needs] = BlockPrefs(sort: .oldest, isOthersApprovedShown: false, isOthersChangesRequestedShown: true)

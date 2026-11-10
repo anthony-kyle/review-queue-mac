@@ -2,7 +2,7 @@ APP := build/ReviewQueue.app
 IDENTITY ?= -
 BIN_DIR = $(shell swift build -c release --show-bin-path)
 
-.PHONY: build app run install test clean
+.PHONY: build app run install test screenshots clean
 
 build:
 	swift build -c release
@@ -25,6 +25,9 @@ install: app
 
 test:
 	swift test
+
+screenshots: app
+	scripts/screenshots.sh $(APP) docs/images
 
 clean:
 	rm -rf .build build

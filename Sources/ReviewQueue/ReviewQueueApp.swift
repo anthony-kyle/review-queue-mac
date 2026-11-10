@@ -3,17 +3,27 @@ import SwiftUI
 
 @main
 struct ReviewQueueApp: App {
-    @State private var model = AppModel()
+    @State private var model: AppModel
+
+    init() {
+        if ScreenshotStage.isEnabled {
+            let demo = AppModel(demo: DemoData(now: Date()))
+            _model = State(initialValue: demo)
+            ScreenshotStage.start(demo)
+        } else {
+            _model = State(initialValue: AppModel())
+        }
+    }
 
     var body: some Scene {
-        MenuBarExtra {
+        MenuBarExtra(isInserted: .constant(!ScreenshotStage.isEnabled)) {
             MenuView(model: model)
         } label: {
             QueueMenuBarLabel(model: model)
         }
         .menuBarExtraStyle(.window)
 
-        MenuBarExtra {
+        MenuBarExtra(isInserted: .constant(!ScreenshotStage.isEnabled)) {
             MyPrsMenuView(model: model)
         } label: {
             MyPrsMenuBarLabel(model: model)
@@ -21,7 +31,7 @@ struct ReviewQueueApp: App {
         .menuBarExtraStyle(.window)
 
         Settings {
-            SettingsView(model: model)
+            SettingsView(model: model, maxHeight: ScreenshotStage.isEnabled ? .infinity : 700)
         }
     }
 }
