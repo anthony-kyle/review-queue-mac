@@ -62,7 +62,7 @@ public enum RepoAccess: String, Codable, CaseIterable, Identifiable, Sendable {
 }
 
 public enum CardDetail: String, Codable, CaseIterable, Identifiable, Sendable {
-    case reason, waiting, approvals, comments, threads, ci, failing, neutral, actions
+    case reason, waiting, approvals, changes, comments, threads, ci, failing, neutral, actions
 
     public var id: String { rawValue }
 
@@ -71,6 +71,7 @@ public enum CardDetail: String, Codable, CaseIterable, Identifiable, Sendable {
         case .reason: "Why it is listed (e.g. Updated after your changes)"
         case .waiting: "⏳ Waiting (opened / updated)"
         case .approvals: "✅ Approved by others"
+        case .changes: "🛑 Changes requested by others"
         case .comments: "💬 Comments"
         case .threads: "🧵 Unresolved threads"
         case .ci: "🚦 CI status"
@@ -94,13 +95,28 @@ public enum BlockSort: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// A block's sort and others'-review filters. Prefs saved before the changes-requested filter existed take it from the
+/// approvals filter, so a block that showed others' approvals keeps showing others' changes-requests too.
 public struct BlockPrefs: Codable, Equatable, Sendable {
     public var sort: BlockSort
     public var isOthersApprovedShown: Bool
+    public var isOthersChangesRequestedShown: Bool
 
-    public init(sort: BlockSort, isOthersApprovedShown: Bool) {
+    public init(sort: BlockSort, isOthersApprovedShown: Bool, isOthersChangesRequestedShown: Bool) {
         self.sort = sort
         self.isOthersApprovedShown = isOthersApprovedShown
+        self.isOthersChangesRequestedShown = isOthersChangesRequestedShown
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case sort, isOthersApprovedShown, isOthersChangesRequestedShown
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        sort = try c.decode(BlockSort.self, forKey: .sort)
+        isOthersApprovedShown = try c.decode(Bool.self, forKey: .isOthersApprovedShown)
+        isOthersChangesRequestedShown = try c.value(.isOthersChangesRequestedShown, or: isOthersApprovedShown)
     }
 }
 
@@ -123,6 +139,7 @@ public struct QueuePr: Codable, Equatable, Identifiable, Sendable {
     public let myReview: MyReview
     public let isReviewRequested: Bool
     public let approvedByOthers: [String]
+    public let changesRequestedByOthers: [String]
     public let commentCount: Int
     public let unresolvedThreads: Int
     public let totalThreads: Int
@@ -161,6 +178,7 @@ public protocol TrackedPr: Identifiable, Equatable, Sendable where ID == String 
     var storyId: String? { get }
     var linearReviewUrl: String? { get set }
     var approvals: [String] { get }
+    var changesRequests: [String] { get }
     var commentCount: Int { get }
     var unresolvedThreads: Int { get }
     var totalThreads: Int { get }
@@ -175,4 +193,5 @@ public protocol TrackedPr: Identifiable, Equatable, Sendable where ID == String 
 
 extension QueuePr: TrackedPr {
     public var approvals: [String] { approvedByOthers }
+    public var changesRequests: [String] { changesRequestedByOthers }
 }

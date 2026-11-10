@@ -157,7 +157,8 @@ private struct GeneralSettings: View {
     }
 }
 
-/// A block's sort order, approved-by-others inclusion and, for High and Low priority, whose PRs always land there.
+/// A block's sort order, approved-by-others and changes-requested-by-others inclusions and, for High and Low priority,
+/// whose PRs always land there.
 private struct BlockSettings: View {
     let model: AppModel
     let block: Block
@@ -171,6 +172,10 @@ private struct BlockSettings: View {
             Toggle("Include PRs approved by others", isOn: Binding(
                 get: { prefs.isOthersApprovedShown },
                 set: { isShown in save { $0.isOthersApprovedShown = isShown } }
+            ))
+            Toggle("Include PRs with changes requested by others", isOn: Binding(
+                get: { prefs.isOthersChangesRequestedShown },
+                set: { isShown in save { $0.isOthersChangesRequestedShown = isShown } }
             ))
             if let list = block.peopleList {
                 people(list)

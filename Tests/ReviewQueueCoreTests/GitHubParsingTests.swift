@@ -52,6 +52,7 @@ import Testing
             ReviewNode(author: nil, state: "APPROVED"),
         ]
         #expect(approvedByOthersOf(detail(reviews: reviews), me: "me") == ["alice", "carol"])
+        #expect(changesRequestedByOthersOf(detail(reviews: reviews), me: "me") == ["bob"])
     }
 
     @Test func checksSplitIntoFailingNeutralAndRunningWithSkippedPassing() {

@@ -176,7 +176,16 @@ func sinceMyReviewUrlOf(_ detail: DetailNode, me: String, url: String) -> String
 
 /// Other humans whose latest decisive review is an approval. A later changes-request or dismissal withdraws it.
 func approvedByOthersOf(_ detail: DetailNode, me: String) -> [String] {
-    latestDecisive(detail.reviews.nodes.compactMap(PrReview.init), excluding: me).filter { $0.state == "APPROVED" }.map(\.author)
+    othersWithLatestReview(detail, me: me, state: "APPROVED")
+}
+
+/// Other humans whose latest decisive review is a changes-request. A later approval or dismissal withdraws it.
+func changesRequestedByOthersOf(_ detail: DetailNode, me: String) -> [String] {
+    othersWithLatestReview(detail, me: me, state: "CHANGES_REQUESTED")
+}
+
+private func othersWithLatestReview(_ detail: DetailNode, me: String, state: String) -> [String] {
+    latestDecisive(detail.reviews.nodes.compactMap(PrReview.init), excluding: me).filter { $0.state == state }.map(\.author)
 }
 
 /// Each human reviewer's latest approval, changes-request or dismissal, in order of their first such review. Bots and
@@ -281,6 +290,7 @@ func queuePr(_ candidate: Candidate, detail: DetailNode, me: String) -> QueuePr 
         myReview: myReviewOf(detail, me: me, isRequested: isReviewRequested),
         isReviewRequested: isReviewRequested,
         approvedByOthers: approvedByOthersOf(detail, me: me),
+        changesRequestedByOthers: changesRequestedByOthersOf(detail, me: me),
         commentCount: detail.comments.totalCount,
         unresolvedThreads: threads.filter { !$0.isResolved }.count,
         totalThreads: threads.count,

@@ -45,7 +45,7 @@ Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.Rev
 
 The settings window has three tabs, and each menu's Settings button opens its own:
 
-- **Review queue**: teams, repo access, per-block sort, approved-by-others and pinned / muted authors, and the queue's notification rules.
+- **Review queue**: teams, repo access, per-block sort, approved-by-others and changes-requested-by-others inclusions, and pinned / muted authors, and the queue's notification rules.
 - **My PRs**: excluded orgs and repos, bot comments, ignored commenters, notification rules and per-block sort.
 - **General**: Linear sign-in and workspace slug, refresh interval, card details (shared by both menus), the loud alert sound with a Test button, and launch at login.
 
@@ -64,13 +64,13 @@ Blocks, in order:
 3. **Waiting on reviewers**: every other non-draft PR.
 4. **Drafts**.
 
-Cards reuse the queue's card-detail toggles (waiting, approvals, comments, threads, CI, failing and neutral checks); the waiting line also lists requested reviewers. The pill is red with the Needs you count while anything needs you, amber while PRs are ready or waiting, and green otherwise (no open PRs, or only drafts).
+Cards reuse the queue's card-detail toggles (waiting, approvals, changes-requests, comments, threads, CI, failing and neutral checks); the waiting line also lists requested reviewers. The pill is red with the Needs you count while anything needs you, amber while PRs are ready or waiting, and green otherwise (no open PRs, or only drafts).
 
 ## Notifications
 
 ### Review queue
 
-Evaluated after every refresh, counting only PRs a block actually shows (so PRs hidden as approved by others don't alert):
+Evaluated after every refresh, counting only PRs a block actually shows (so PRs hidden as approved or changes-requested by others don't alert):
 
 1. A PR newly in High priority sends a High alert.
 2. While a PR stays in High priority it is re-announced on every refresh ("Repeat High priority reminders", on by default).
