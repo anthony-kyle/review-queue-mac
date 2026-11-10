@@ -111,9 +111,11 @@ import Testing
     }
 
     @Test func pillToneFollowsWhatNeedsYou() {
-        #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 0) == .clear)
-        #expect(myMenuTone(needsYou: 0, ready: 1, waiting: 0) == .waiting)
+        #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 0) == .idle)
         #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 3) == .waiting)
+        #expect(myMenuTone(needsYou: 0, ready: 1, waiting: 0) == .ready)
+        #expect(myMenuTone(needsYou: 0, ready: 1, waiting: 3) == .ready)
+        #expect(myMenuTone(needsYou: 2, ready: 0, waiting: 0) == .urgent)
         #expect(myMenuTone(needsYou: 2, ready: 1, waiting: 3) == .urgent)
     }
 

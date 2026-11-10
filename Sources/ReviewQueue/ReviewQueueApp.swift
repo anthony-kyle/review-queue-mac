@@ -74,8 +74,9 @@ struct MyPrsMenuBarLabel: View {
     }
 }
 
-/// A menu bar label showing `pill` drawn to a non-template image, since a MenuBarExtra label renders SwiftUI views as
-/// monochrome templates and drops colour. `fallback` is used if rendering fails.
+/// A menu bar label showing `pill` drawn to an image, since a MenuBarExtra label renders SwiftUI views as monochrome
+/// templates and drops colour. Coloured tones opt out of templating; `idle` keeps it so the menu bar tints it like its
+/// own items. `fallback` is used if rendering fails.
 struct MenuBarLabel: View {
     let pill: MenuBarPill
     let fallback: String
@@ -85,7 +86,7 @@ struct MenuBarLabel: View {
         let renderer = ImageRenderer(content: pill)
         renderer.scale = displayScale
         if let image = renderer.nsImage {
-            image.isTemplate = false
+            image.isTemplate = pill.tone == .idle
             return AnyView(Image(nsImage: image))
         }
         return AnyView(Text(fallback))
@@ -93,7 +94,8 @@ struct MenuBarLabel: View {
 }
 
 /// The pill itself: an SF Symbol and optional counts in white on a softly graded green, amber or red capsule by `tone`,
-/// with a faint inner highlight. Solid colours only, since glass does not render offscreen in `ImageRenderer`.
+/// with a faint inner highlight. Solid colours only, since glass does not render offscreen in `ImageRenderer`; `idle`
+/// stands in for glass with a faint outlined capsule drawn for template tinting, where only alpha survives.
 struct MenuBarPill: View {
     let icon: String
     let text: String?
@@ -107,18 +109,19 @@ struct MenuBarPill: View {
             }
         }
         .font(.system(size: 12, weight: .semibold, design: .rounded))
-        .foregroundStyle(.white)
+        .foregroundStyle(tone == .idle ? .black : .white)
         .padding(.horizontal, 8)
         .frame(height: 18)
-        .background(Capsule().fill(color.gradient))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+        .background(Capsule().fill(background))
+        .overlay(Capsule().strokeBorder(tone == .idle ? .black.opacity(0.35) : .white.opacity(0.25), lineWidth: 0.5))
     }
 
-    private var color: Color {
+    private var background: AnyShapeStyle {
         switch tone {
-        case .clear: Color(nsColor: .systemGreen)
-        case .waiting: Color(nsColor: .systemOrange)
-        case .urgent: Color(nsColor: .systemRed)
+        case .clear, .ready: AnyShapeStyle(Color(nsColor: .systemGreen).gradient)
+        case .waiting: AnyShapeStyle(Color(nsColor: .systemOrange).gradient)
+        case .urgent: AnyShapeStyle(Color(nsColor: .systemRed).gradient)
+        case .idle: AnyShapeStyle(.black.opacity(0.12))
         }
     }
 }

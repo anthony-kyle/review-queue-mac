@@ -175,9 +175,10 @@ public func myBlockLists(_ prs: [MyPr], _ context: MyPrsContext, dismissals: Dis
     })
 }
 
-/// The My PRs pill's colour: urgent while anything needs you, waiting while PRs are ready or with reviewers, clear
-/// otherwise (drafts alone stay clear).
+/// The My PRs pill's colour, first match wins: urgent while anything needs you, ready while anything is approved,
+/// waiting while anything is with reviewers, idle otherwise (drafts alone stay idle).
 public func myMenuTone(needsYou: Int, ready: Int, waiting: Int) -> MenuTone {
     if needsYou > 0 { return .urgent }
-    return ready + waiting > 0 ? .waiting : .clear
+    if ready > 0 { return .ready }
+    return waiting > 0 ? .waiting : .idle
 }
