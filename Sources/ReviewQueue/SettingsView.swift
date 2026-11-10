@@ -2,9 +2,11 @@ import ReviewQueueCore
 import SwiftUI
 
 /// The settings window in three tabs: the review queue's own choices, My PRs, and General for what both menus share
-/// (Linear, refresh, card details, sound, launch at login). Each menu's Settings button opens its own tab.
+/// (Linear, refresh, card details, sound, launch at login). Each menu's Settings button opens its own tab. The window
+/// is 700 points tall unless `maxHeight` lifts the cap, which screenshot mode does so a whole tab fits.
 struct SettingsView: View {
     @Bindable var model: AppModel
+    var maxHeight: CGFloat = 700
 
     var body: some View {
         TabView(selection: $model.settingsTab) {
@@ -18,7 +20,8 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
         }
-        .frame(width: 540, height: 700)
+        .frame(width: 540)
+        .frame(minHeight: 700, maxHeight: maxHeight)
         .onAppear { model.loadTeamsIfNeeded() }
     }
 }
