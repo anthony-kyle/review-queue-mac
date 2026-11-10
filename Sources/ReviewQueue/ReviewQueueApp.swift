@@ -36,40 +36,25 @@ struct ReviewQueueApp: App {
     }
 }
 
-/// The review queue's pill: High priority and Needs review counts, coloured by `menuTone`.
+/// The review queue's pill, from the High priority and Needs review counts.
 struct QueueMenuBarLabel: View {
     let model: AppModel
 
     var body: some View {
-        let lists = model.lists
-        let high = lists[.high]?.shown.count ?? 0
-        let needs = lists[.needs]?.shown.count ?? 0
-        let counts = high > 0 ? "\(high)! · \(needs)" : "\(needs)"
-        MenuBarLabel(
-            pill: MenuBarPill(
-                icon: high > 0 ? "exclamationmark.bubble.fill" : "checklist",
-                text: high > 0 || needs > 0 ? counts : nil,
-                tone: menuTone(high: high, needs: needs)
-            ),
-            fallback: counts
-        )
+        MenuBarLabel.queue(high: model.lists[.high]?.shown.count ?? 0, needs: model.lists[.needs]?.shown.count ?? 0)
     }
 }
 
-/// The My PRs pill: a person icon and the Needs you count, coloured by `myMenuTone`.
+/// The My PRs pill, from the Needs you, Ready to merge and Waiting counts.
 struct MyPrsMenuBarLabel: View {
     let model: AppModel
 
     var body: some View {
         let lists = model.myLists
-        let needsYou = lists[.needsYou]?.shown.count ?? 0
-        MenuBarLabel(
-            pill: MenuBarPill(
-                icon: needsYou > 0 ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle",
-                text: needsYou > 0 ? "\(needsYou)" : nil,
-                tone: myMenuTone(needsYou: needsYou, ready: lists[.ready]?.shown.count ?? 0, waiting: lists[.waiting]?.shown.count ?? 0)
-            ),
-            fallback: "Mine \(needsYou)"
+        MenuBarLabel.myPrs(
+            needsYou: lists[.needsYou]?.shown.count ?? 0,
+            ready: lists[.ready]?.shown.count ?? 0,
+            waiting: lists[.waiting]?.shown.count ?? 0
         )
     }
 }
@@ -82,14 +67,44 @@ struct MenuBarLabel: View {
     let fallback: String
     @Environment(\.displayScale) private var displayScale
 
+    /// The review queue's pill: High priority and Needs review counts, coloured by `menuTone`.
+    static func queue(high: Int, needs: Int) -> MenuBarLabel {
+        let counts = high > 0 ? "\(high)! · \(needs)" : "\(needs)"
+        return MenuBarLabel(
+            pill: MenuBarPill(
+                icon: high > 0 ? "exclamationmark.bubble.fill" : "checklist",
+                text: high > 0 || needs > 0 ? counts : nil,
+                tone: menuTone(high: high, needs: needs)
+            ),
+            fallback: counts
+        )
+    }
+
+    /// The My PRs pill: a person icon and the Needs you count, coloured by `myMenuTone`.
+    static func myPrs(needsYou: Int, ready: Int, waiting: Int) -> MenuBarLabel {
+        MenuBarLabel(
+            pill: MenuBarPill(
+                icon: needsYou > 0 ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle",
+                text: needsYou > 0 ? "\(needsYou)" : nil,
+                tone: myMenuTone(needsYou: needsYou, ready: ready, waiting: waiting)
+            ),
+            fallback: "Mine \(needsYou)"
+        )
+    }
+
     var body: some View {
-        let renderer = ImageRenderer(content: pill)
-        renderer.scale = displayScale
-        if let image = renderer.nsImage {
-            image.isTemplate = pill.tone == .idle
+        if let image = image(scale: displayScale) {
             return AnyView(Image(nsImage: image))
         }
         return AnyView(Text(fallback))
+    }
+
+    @MainActor func image(scale: CGFloat) -> NSImage? {
+        let renderer = ImageRenderer(content: pill)
+        renderer.scale = scale
+        guard let image = renderer.nsImage else { return nil }
+        image.isTemplate = pill.tone == .idle
+        return image
     }
 }
 
