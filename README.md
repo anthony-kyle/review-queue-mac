@@ -58,6 +58,18 @@ The settings window has three tabs, and each menu's Settings button opens its ow
 - **My PRs**: excluded orgs and repos, bot comments, ignored commenters, notification rules and per-block sort.
 - **General**: Linear sign-in and workspace slug, refresh interval, card details (shared by both menus), the loud alert sound with a Test button, and launch at login.
 
+### Menu bar pills
+
+Each menu bar item is a pill whose colour says what its list needs. The first rule that matches wins.
+
+<p>
+<img width="45%" alt="Review queue pill states on light and dark menu bars" src="docs/images/pills-review-queue.png" />
+<img width="54%" alt="My PRs pill states on light and dark menu bars" src="docs/images/pills-my-prs.png" />
+</p>
+
+- **Review queue**: red with the High priority and Needs review counts while anything is High priority, amber with the Needs review count while anything needs review, green when neither has PRs.
+- **My PRs**: red with the Needs you count while anything needs you, green while anything is in Ready to merge, amber while anything is waiting on reviewers, and glass otherwise (no open PRs, or only drafts). The glass pill is a monochrome template that the menu bar tints like its own icons.
+
 ## My PRs
 
 Your open PRs come from a GitHub search (`is:open is:pr author:<you> archived:false`, paged), then a details pass in the same batches as the queue: reviews, review threads and issue comments, requested reviewers, CI checks, mergeability and review decision. Story ids and Linear review links work as in the queue, resolved in the same pass and cache.
@@ -73,7 +85,7 @@ Blocks, in order:
 3. **Waiting on reviewers**: every other non-draft PR.
 4. **Drafts**.
 
-Cards reuse the queue's card-detail toggles (waiting, approvals, changes-requests, comments, threads, CI, failing and neutral checks); the waiting line also lists requested reviewers. The pill is red with the Needs you count while anything needs you, amber while PRs are ready or waiting, and green otherwise (no open PRs, or only drafts).
+Cards reuse the queue's card-detail toggles (waiting, approvals, changes-requests, comments, threads, CI, failing and neutral checks); the waiting line also lists requested reviewers. The menu bar pill takes its colour from these blocks; see [Menu bar pills](#menu-bar-pills).
 
 ## Notifications
 

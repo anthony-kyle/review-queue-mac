@@ -15,10 +15,12 @@ enum ScreenshotStage {
         case settingsReviewQueue = "settings-review-queue"
         case settingsMyPrs = "settings-my-prs"
         case settingsGeneral = "settings-general"
+        case pillsReviewQueue = "pills-review-queue"
+        case pillsMyPrs = "pills-my-prs"
 
         var settingsTab: SettingsTab? {
             switch self {
-            case .reviewQueue, .myPrs: nil
+            case .reviewQueue, .myPrs, .pillsReviewQueue, .pillsMyPrs: nil
             case .settingsReviewQueue: .reviewQueue
             case .settingsMyPrs: .myPrs
             case .settingsGeneral: .general
@@ -60,6 +62,19 @@ enum ScreenshotStage {
         switch shot {
         case .reviewQueue: window = panel(MenuView(model: model))
         case .myPrs: window = panel(MyPrsMenuView(model: model))
+        case .pillsReviewQueue:
+            window = pills([
+                ("High priority", .queue(high: 1, needs: 3)),
+                ("Needs review", .queue(high: 0, needs: 3)),
+                ("Clear", .queue(high: 0, needs: 0)),
+            ])
+        case .pillsMyPrs:
+            window = pills([
+                ("Needs you", .myPrs(needsYou: 2, ready: 1, waiting: 3)),
+                ("Approved", .myPrs(needsYou: 0, ready: 1, waiting: 3)),
+                ("Waiting", .myPrs(needsYou: 0, ready: 0, waiting: 3)),
+                ("No reviews", .myPrs(needsYou: 0, ready: 0, waiting: 0)),
+            ])
         case .settingsReviewQueue, .settingsMyPrs, .settingsGeneral:
             model.settingsTab = shot.settingsTab ?? .reviewQueue
             window = invisibleWindow(SettingsOpener())
@@ -112,6 +127,13 @@ enum ScreenshotStage {
     private static func scrollViews(in view: NSView?) -> [NSScrollView] {
         guard let view else { return [] }
         return (view as? NSScrollView).map { [$0] } ?? view.subviews.flatMap(scrollViews(in:))
+    }
+
+    private static func pills(_ states: [(String, MenuBarLabel)]) -> NSWindow {
+        let window = hostingWindow(PillStates(states: states))
+        placeOnSharpestScreen(window)
+        window.makeKeyAndOrderFront(nil)
+        return window
     }
 
     private static func panel(_ content: some View) -> NSWindow {
@@ -169,6 +191,37 @@ private struct ScreenshotBackdrop<Content: View>: View {
                     endPoint: .bottomTrailing
                 )
             )
+    }
+}
+
+/// Each pill state labelled, on a light and then a dark menu bar. `idle` pills are tinted here as the menu bar tints
+/// template images, since a template drawn in a window keeps its raw black.
+private struct PillStates: View {
+    let states: [(String, MenuBarLabel)]
+
+    var body: some View {
+        VStack(spacing: 0) {
+            strip(isDark: false)
+            strip(isDark: true)
+        }
+    }
+
+    private func strip(isDark: Bool) -> some View {
+        HStack(alignment: .top, spacing: 28) {
+            ForEach(states, id: \.0) { name, label in
+                VStack(spacing: 6) {
+                    if let image = label.image(scale: 2) {
+                        Image(nsImage: image).renderingMode(image.isTemplate ? .template : .original)
+                    }
+                    Text(name).font(.system(size: 11)).fixedSize()
+                }
+            }
+        }
+        .foregroundStyle(isDark ? .white : .black)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .frame(maxWidth: .infinity)
+        .background(isDark ? Color(white: 0.16) : Color(white: 0.93))
     }
 }
 

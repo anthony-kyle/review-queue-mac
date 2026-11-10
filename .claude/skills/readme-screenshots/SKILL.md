@@ -34,7 +34,7 @@ the screens cannot show (networking, parsing, notifications, tests only) and say
    - only fake data: the people, repos and tickets in `DemoData.swift` and the public bots `cursor`,
      `datadog-official` and Cursor Bugbot.
 5. **Update the README.** Every image is referenced by relative path (`docs/images/<shot>.png`): the two menus at the
-   top, the three Settings tabs under "Settings". Add an `<img>` for any new shot where it belongs, and update prose that
+   top, the three Settings tabs under "Settings", the two pill-state strips under "Menu bar pills". Add an `<img>` for any new shot where it belongs, and update prose that
    describes what the images show.
 6. **Stage, don't commit.** `git add docs/images README.md` plus any fixture or stage changes, run `make test`, then
    report the images and ask the user before committing. Mention in the PR description that screenshots were

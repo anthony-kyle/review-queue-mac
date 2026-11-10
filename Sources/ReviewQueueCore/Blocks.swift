@@ -96,8 +96,10 @@ func blockList<P: TrackedPr>(_ all: [P], sort: BlockSort, dismissals: Dismissals
     return BlockList(shown: shown, hidden: active.map(\.1).reduce(HiddenCounts(), +), dismissed: dismissed)
 }
 
+/// A menu bar pill's colour state. `clear` and `ready` both draw green; `idle` draws as a monochrome template that the
+/// menu bar tints like its own items.
 public enum MenuTone: Equatable, Sendable {
-    case clear, waiting, urgent
+    case clear, ready, waiting, urgent, idle
 }
 
 /// The menu bar's colour state: urgent while anything is High priority, waiting while only Needs review has PRs, clear

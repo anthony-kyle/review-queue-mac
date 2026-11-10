@@ -36,16 +36,41 @@ struct ReviewQueueApp: App {
     }
 }
 
-/// The review queue's pill: High priority and Needs review counts, coloured by `menuTone`.
+/// The review queue's pill, from the High priority and Needs review counts.
 struct QueueMenuBarLabel: View {
     let model: AppModel
 
     var body: some View {
-        let lists = model.lists
-        let high = lists[.high]?.shown.count ?? 0
-        let needs = lists[.needs]?.shown.count ?? 0
+        MenuBarLabel.queue(high: model.lists[.high]?.shown.count ?? 0, needs: model.lists[.needs]?.shown.count ?? 0)
+    }
+}
+
+/// The My PRs pill, from the Needs you, Ready to merge and Waiting counts.
+struct MyPrsMenuBarLabel: View {
+    let model: AppModel
+
+    var body: some View {
+        let lists = model.myLists
+        MenuBarLabel.myPrs(
+            needsYou: lists[.needsYou]?.shown.count ?? 0,
+            ready: lists[.ready]?.shown.count ?? 0,
+            waiting: lists[.waiting]?.shown.count ?? 0
+        )
+    }
+}
+
+/// A menu bar label showing `pill` drawn to an image, since a MenuBarExtra label renders SwiftUI views as monochrome
+/// templates and drops colour. Coloured tones opt out of templating; `idle` keeps it so the menu bar tints it like its
+/// own items. `fallback` is used if rendering fails.
+struct MenuBarLabel: View {
+    let pill: MenuBarPill
+    let fallback: String
+    @Environment(\.displayScale) private var displayScale
+
+    /// The review queue's pill: High priority and Needs review counts, coloured by `menuTone`.
+    static func queue(high: Int, needs: Int) -> MenuBarLabel {
         let counts = high > 0 ? "\(high)! · \(needs)" : "\(needs)"
-        MenuBarLabel(
+        return MenuBarLabel(
             pill: MenuBarPill(
                 icon: high > 0 ? "exclamationmark.bubble.fill" : "checklist",
                 text: high > 0 || needs > 0 ? counts : nil,
@@ -54,46 +79,38 @@ struct QueueMenuBarLabel: View {
             fallback: counts
         )
     }
-}
 
-/// The My PRs pill: a person icon and the Needs you count, coloured by `myMenuTone`.
-struct MyPrsMenuBarLabel: View {
-    let model: AppModel
-
-    var body: some View {
-        let lists = model.myLists
-        let needsYou = lists[.needsYou]?.shown.count ?? 0
+    /// The My PRs pill: a person icon and the Needs you count, coloured by `myMenuTone`.
+    static func myPrs(needsYou: Int, ready: Int, waiting: Int) -> MenuBarLabel {
         MenuBarLabel(
             pill: MenuBarPill(
                 icon: needsYou > 0 ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle",
                 text: needsYou > 0 ? "\(needsYou)" : nil,
-                tone: myMenuTone(needsYou: needsYou, ready: lists[.ready]?.shown.count ?? 0, waiting: lists[.waiting]?.shown.count ?? 0)
+                tone: myMenuTone(needsYou: needsYou, ready: ready, waiting: waiting)
             ),
             fallback: "Mine \(needsYou)"
         )
     }
-}
-
-/// A menu bar label showing `pill` drawn to a non-template image, since a MenuBarExtra label renders SwiftUI views as
-/// monochrome templates and drops colour. `fallback` is used if rendering fails.
-struct MenuBarLabel: View {
-    let pill: MenuBarPill
-    let fallback: String
-    @Environment(\.displayScale) private var displayScale
 
     var body: some View {
-        let renderer = ImageRenderer(content: pill)
-        renderer.scale = displayScale
-        if let image = renderer.nsImage {
-            image.isTemplate = false
+        if let image = image(scale: displayScale) {
             return AnyView(Image(nsImage: image))
         }
         return AnyView(Text(fallback))
     }
+
+    @MainActor func image(scale: CGFloat) -> NSImage? {
+        let renderer = ImageRenderer(content: pill)
+        renderer.scale = scale
+        guard let image = renderer.nsImage else { return nil }
+        image.isTemplate = pill.tone == .idle
+        return image
+    }
 }
 
 /// The pill itself: an SF Symbol and optional counts in white on a softly graded green, amber or red capsule by `tone`,
-/// with a faint inner highlight. Solid colours only, since glass does not render offscreen in `ImageRenderer`.
+/// with a faint inner highlight. Solid colours only, since glass does not render offscreen in `ImageRenderer`; `idle`
+/// stands in for glass with a faint outlined capsule drawn for template tinting, where only alpha survives.
 struct MenuBarPill: View {
     let icon: String
     let text: String?
@@ -107,18 +124,19 @@ struct MenuBarPill: View {
             }
         }
         .font(.system(size: 12, weight: .semibold, design: .rounded))
-        .foregroundStyle(.white)
+        .foregroundStyle(tone == .idle ? .black : .white)
         .padding(.horizontal, 8)
         .frame(height: 18)
-        .background(Capsule().fill(color.gradient))
-        .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
+        .background(Capsule().fill(background))
+        .overlay(Capsule().strokeBorder(tone == .idle ? .black.opacity(0.35) : .white.opacity(0.25), lineWidth: 0.5))
     }
 
-    private var color: Color {
+    private var background: AnyShapeStyle {
         switch tone {
-        case .clear: Color(nsColor: .systemGreen)
-        case .waiting: Color(nsColor: .systemOrange)
-        case .urgent: Color(nsColor: .systemRed)
+        case .clear, .ready: AnyShapeStyle(Color(nsColor: .systemGreen).gradient)
+        case .waiting: AnyShapeStyle(Color(nsColor: .systemOrange).gradient)
+        case .urgent: AnyShapeStyle(Color(nsColor: .systemRed).gradient)
+        case .idle: AnyShapeStyle(.black.opacity(0.12))
         }
     }
 }
