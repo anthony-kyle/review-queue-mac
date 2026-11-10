@@ -15,7 +15,7 @@ public struct DemoData: Sendable {
     public let fetchedAt: Date
 
     /// High priority holds a daily-group PR with others' approval and changes-request and one updated after your
-    /// changes; Needs review shows three PRs and hides two approved by others and one with changes requested by others.
+    /// changes, which links the diff since your review; Needs review shows three PRs and hides two approved by others and one with changes requested by others.
     /// My PRs has two that need you, two ready to merge, one with reviewers and a draft, plus one in an excluded repo; the
 /// bot's comment is from an ignored commenter, so CI alone puts its PR in Needs you.
     public init(now: Date) {
@@ -38,7 +38,8 @@ public struct DemoData: Sendable {
             ),
             queuePr(
                 412, "acme-finance-lib", "fix(finance): round tax totals per line, not per invoice", author: "jdoe", story: 1043,
-                myReview: .changesAddressed, comments: 3, threads: (0, 2), created: at.hours(20), updated: at.hours(1)
+                myReview: .changesAddressed, sinceMyReview: true, comments: 3, threads: (0, 2), created: at.hours(20),
+                updated: at.hours(1)
             ),
             queuePr(
                 815, "acme-web", "feat(web): remember the last-used date range filter", author: "sam-rivera", story: 1045,
@@ -148,6 +149,7 @@ private func queuePr(
     author: String,
     story: Int,
     myReview: MyReview = .none,
+    sinceMyReview: Bool = false,
     isReviewRequested: Bool = false,
     approvedBy: [String] = [],
     changesRequestedBy: [String] = [],
@@ -186,7 +188,8 @@ private func queuePr(
         createdAt: created,
         updatedAt: updated,
         latestCommentUrl: comments > 0 ? "\(url)#issuecomment-1" : nil,
-        firstUnresolvedThreadUrl: threads.unresolved > 0 ? "\(url)#discussion_r1" : nil
+        firstUnresolvedThreadUrl: threads.unresolved > 0 ? "\(url)#discussion_r1" : nil,
+        sinceMyReviewUrl: sinceMyReview ? "\(url)/files/3f9c2a1..8b7e4d0" : nil
     )
 }
 

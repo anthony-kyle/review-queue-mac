@@ -10,6 +10,7 @@ import Testing
         let high = lists[.high]?.shown ?? []
         #expect(high.count == 2)
         #expect(high.first.map { !$0.approvedByOthers.isEmpty && !$0.changesRequestedByOthers.isEmpty } == true)
+        #expect(high.last?.sinceMyReviewUrl != nil)
         #expect(lists[.needs]?.shown.count == 3)
         #expect(lists[.needs]?.hidden.note == "2 approved by others, 1 with changes requested by others hidden")
         #expect(lists[.waiting]?.shown.count == 1)
