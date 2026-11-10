@@ -105,8 +105,8 @@ final class AppModel {
         myAllPrs = demo.myPrs
         myFetchedAt = demo.fetchedAt
         notificationPermission = "Allowed"
-        if let second = lists[.high]?.shown.dropFirst().first { rowExpansion.toggle(second.key) }
-        if let second = myLists[.needsYou]?.shown.dropFirst().first { myRowExpansion.toggle(second.key) }
+        if let first = lists[.high]?.shown.first { rowExpansion.toggle(first.key, in: Block.high.rawValue) }
+        if let second = myLists[.needsYou]?.shown.dropFirst().first { myRowExpansion.toggle(second.key, in: MyBlock.needsYou.rawValue) }
     }
 
     var lists: [Block: BlockList<QueuePr>] { blockLists(prs, settings, dismissals: dismissals) }

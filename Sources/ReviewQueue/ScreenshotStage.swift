@@ -70,7 +70,10 @@ enum ScreenshotStage {
                 window = NSApp.windows.first { $0.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true }
                 window?.makeKeyAndOrderFront(nil)
                 window?.makeFirstResponder(nil)
-                if let window { growToFitScrolledContent(window) }
+                if let window {
+                    placeOnSharpestScreen(window)
+                    growToFitScrolledContent(window)
+                }
                 try? await Task.sleep(for: .seconds(1))
             }
             guard let window else { return }
@@ -113,10 +116,17 @@ enum ScreenshotStage {
 
     private static func panel(_ content: some View) -> NSWindow {
         let window = hostingWindow(ScreenshotBackdrop { content })
-        let screen = NSScreen.main?.visibleFrame ?? .zero
-        window.setFrameTopLeftPoint(NSPoint(x: screen.minX + 40, y: screen.maxY - 40))
+        placeOnSharpestScreen(window)
         window.makeKeyAndOrderFront(nil)
         return window
+    }
+
+    /// Moves `window` to the top-left of the screen with the highest backing scale. `screencapture -l` captures at the
+    /// scale of the screen the window is on, and `NSScreen.main` is whichever screen holds the focused window, so
+    /// without this a run started from a non-Retina display writes a 1x set.
+    private static func placeOnSharpestScreen(_ window: NSWindow) {
+        let screen = (NSScreen.screens.max { $0.backingScaleFactor < $1.backingScaleFactor } ?? NSScreen.main)?.visibleFrame ?? .zero
+        window.setFrameTopLeftPoint(NSPoint(x: screen.minX + 40, y: screen.maxY - 40))
     }
 
     private static func invisibleWindow(_ content: some View) -> NSWindow {

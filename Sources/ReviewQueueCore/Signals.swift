@@ -39,18 +39,22 @@ private func counted(_ count: Int, _ noun: String) -> String {
     count == 1 ? "1 \(noun)" : "\(count) \(noun)s"
 }
 
-/// Which PR rows are open: each block's default, flipped for every PR toggled since launch, so a row open by default
-/// can still be closed. Keys are `TrackedPr.key`.
+/// Which PR rows are open: each block's default, flipped for every PR toggled in that block since launch, so a row open
+/// by default can still be closed. Toggles are scoped to the block (`scope`) so a PR that moves blocks, such as one
+/// escalating into High priority, starts at its new block's default instead of inheriting a flip made elsewhere. Keys
+/// are `TrackedPr.key`.
 public struct RowExpansion: Equatable, Sendable {
     private var toggled: Set<String> = []
 
     public init() {}
 
-    public func isExpanded(_ key: String, byDefault: Bool) -> Bool {
-        toggled.contains(key) != byDefault
+    public func isExpanded(_ key: String, in scope: String, byDefault: Bool) -> Bool {
+        toggled.contains(Self.id(key, scope)) != byDefault
     }
 
-    public mutating func toggle(_ key: String) {
-        toggled.formSymmetricDifference([key])
+    public mutating func toggle(_ key: String, in scope: String) {
+        toggled.formSymmetricDifference([Self.id(key, scope)])
     }
+
+    private static func id(_ key: String, _ scope: String) -> String { "\(scope):\(key)" }
 }

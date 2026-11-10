@@ -17,20 +17,22 @@ struct CardView: View {
             now: now,
             tint: block.style.cardTint,
             signal: queueSignal(pr),
-            isExpanded: model.rowExpansion.isExpanded(pr.key, byDefault: block.areRowsExpandedByDefault),
-            onToggle: { model.rowExpansion.toggle(pr.key) },
+            isExpanded: model.rowExpansion.isExpanded(pr.key, in: block.rawValue, byDefault: block.areRowsExpandedByDefault),
+            onToggle: { model.rowExpansion.toggle(pr.key, in: block.rawValue) },
             onDone: { model.markDone(pr) }
         ) {
             CardField("Author") {
                 LinkText(pr.author, color: authorColor(settings)) { model.open("https://github.com/\(pr.author)") }
             }
-            StandardDetailRows(model: model, pr: pr, settings: settings, now: now, reason: reason(settings))
+            StandardDetailRows(
+                model: model,
+                pr: pr,
+                settings: settings,
+                now: now,
+                reason: reason(settings),
+                sinceMyReviewUrl: pr.sinceMyReviewUrl
+            )
         } accessory: {
-            if let since = pr.sinceMyReviewUrl {
-                Button("Since your review") { model.open(since) }
-                    .buttonStyle(.ghost(.githubPurple))
-                    .help("Files changed since the commit you last reviewed")
-            }
             if settings.shows(.actions) {
                 authorActions(settings)
             }
@@ -209,11 +211,12 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
     let settings: QueueSettings
     let now: Date
     let reason: PrSignal?
+    var sinceMyReviewUrl: String? = nil
 
     var body: some View {
         CardField("Where") { whereValue }
-        if settings.shows(.reason), let reason {
-            CardField("Why") { Text(reason.text).foregroundStyle(reason.tone.color) }
+        if shownReason != nil || sinceMyReviewUrl != nil {
+            CardField("Why") { whyValue }
         }
         if settings.shows(.waiting) {
             CardField("Waiting") { Text("opened \(timeAgo(pr.createdAt, now: now)) · updated \(timeAgo(pr.updatedAt, now: now))") }
@@ -234,6 +237,23 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
 
     private var hasFailing: Bool { settings.shows(.failing) && !pr.failingChecks.isEmpty }
     private var hasNeutral: Bool { settings.shows(.neutral) && !pr.neutralChecks.isEmpty }
+
+    private var shownReason: PrSignal? { settings.shows(.reason) ? reason : nil }
+
+    private var whyValue: some View {
+        HStack(spacing: 4) {
+            if let shownReason {
+                Text(shownReason.text).foregroundStyle(shownReason.tone.color)
+            }
+            if let sinceMyReviewUrl {
+                if shownReason != nil { Text("·").foregroundStyle(.secondary) }
+                LinkText("view diff") { model.open(sinceMyReviewUrl) }
+                    .layoutPriority(1)
+                    .help("Files changed since the commit you last reviewed")
+            }
+        }
+        .lineLimit(1)
+    }
 
     private var whereValue: some View {
         HStack(spacing: 4) {

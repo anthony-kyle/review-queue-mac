@@ -18,8 +18,8 @@ struct MyPrCardView: View {
             now: now,
             tint: block.style.cardTint,
             signal: mySignal(pr, context),
-            isExpanded: model.myRowExpansion.isExpanded(pr.key, byDefault: block.areRowsExpandedByDefault),
-            onToggle: { model.myRowExpansion.toggle(pr.key) },
+            isExpanded: model.myRowExpansion.isExpanded(pr.key, in: block.rawValue, byDefault: block.areRowsExpandedByDefault),
+            onToggle: { model.myRowExpansion.toggle(pr.key, in: block.rawValue) },
             onDone: { model.markDone(pr) }
         ) {
             StandardDetailRows(

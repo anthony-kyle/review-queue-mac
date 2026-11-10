@@ -38,16 +38,23 @@ import Testing
 
     @Test func rowsFollowTheirBlockDefaultUntilToggled() {
         var expansion = RowExpansion()
-        #expect(expansion.isExpanded("a#1", byDefault: true))
-        #expect(!expansion.isExpanded("a#2", byDefault: false))
+        #expect(expansion.isExpanded("a#1", in: "high", byDefault: true))
+        #expect(!expansion.isExpanded("a#2", in: "waiting", byDefault: false))
 
-        expansion.toggle("a#1")
-        expansion.toggle("a#2")
-        #expect(!expansion.isExpanded("a#1", byDefault: true))
-        #expect(expansion.isExpanded("a#2", byDefault: false))
+        expansion.toggle("a#1", in: "high")
+        expansion.toggle("a#2", in: "waiting")
+        #expect(!expansion.isExpanded("a#1", in: "high", byDefault: true))
+        #expect(expansion.isExpanded("a#2", in: "waiting", byDefault: false))
 
-        expansion.toggle("a#1")
-        #expect(expansion.isExpanded("a#1", byDefault: true))
+        expansion.toggle("a#1", in: "high")
+        #expect(expansion.isExpanded("a#1", in: "high", byDefault: true))
+    }
+
+    @Test func aToggleDoesNotFollowThePrIntoAnotherBlock() {
+        var expansion = RowExpansion()
+        expansion.toggle("a#30", in: Block.waiting.rawValue)
+        #expect(expansion.isExpanded("a#30", in: Block.waiting.rawValue, byDefault: false))
+        #expect(expansion.isExpanded("a#30", in: Block.high.rawValue, byDefault: true))
     }
 
     @Test func onlyTheUrgentBlocksExpandRowsByDefault() {
