@@ -9,7 +9,8 @@ enum SettingsTab: Hashable {
 
 /// The review queue, your own open PRs, the person's settings and everything that refreshes them: the interval timer,
 /// wake from sleep and stale data on menu open. Each refresh fetches both lists, failing independently, and works out
-/// and posts both sets of notifications.
+/// and posts both sets of notifications. A demo model (`init(demo:)`) holds fixtures in memory and never touches the
+/// network, disk, Keychain, login items or notifications.
 @MainActor
 @Observable
 final class AppModel {
@@ -45,7 +46,7 @@ final class AppModel {
     var settingsTab = SettingsTab.reviewQueue
 
     @ObservationIgnored private let github = GitHubClient()
-    @ObservationIgnored private let store = JSONStore()
+    @ObservationIgnored private let store: JSONStore?
     @ObservationIgnored private let notifier = Notifier()
     @ObservationIgnored private let sound = AlertSound()
     @ObservationIgnored private let linearTokens = LinearTokenProvider(oauth: LinearOAuth(), storage: Keychain.linearTokenStorage)
@@ -58,6 +59,8 @@ final class AppModel {
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
 
     init() {
+        let store = JSONStore()
+        self.store = store
         settings = store.load(QueueSettings.self, from: JSONStore.settings) ?? QueueSettings()
         alertState = store.load(AlertState.self, from: JSONStore.alertState)
         dismissals = store.load(Dismissals.self, from: JSONStore.dismissals) ?? [:]
@@ -79,6 +82,31 @@ final class AppModel {
         }
         schedule()
         Task { await refresh() }
+    }
+
+    /// Screenshot mode's model: `demo`'s PRs and settings as if just fetched, with the second card of High priority and
+    /// Needs you closed so both row styles show and each menu fits without scrolling. Nothing is loaded, saved or
+    /// refreshed.
+    init(demo: DemoData) {
+        store = nil
+        settings = demo.settings
+        dismissals = [:]
+        myDismissals = [:]
+        acknowledged = []
+        isAcknowledgedBaselined = true
+        isLinearSignedIn = true
+        isLaunchAtLogin = true
+        prs = demo.prs
+        people = demo.people
+        availableTeams = demo.teams
+        linearWorkspace = DemoData.linearWorkspace
+        fetchedAt = demo.fetchedAt
+        me = DemoData.me
+        myAllPrs = demo.myPrs
+        myFetchedAt = demo.fetchedAt
+        notificationPermission = "Allowed"
+        if let second = lists[.high]?.shown.dropFirst().first { rowExpansion.toggle(second.key) }
+        if let second = myLists[.needsYou]?.shown.dropFirst().first { myRowExpansion.toggle(second.key) }
     }
 
     var lists: [Block: BlockList<QueuePr>] { blockLists(prs, settings, dismissals: dismissals) }
@@ -134,18 +162,18 @@ final class AppModel {
 
     private func saveDismissals(_ next: Dismissals) {
         dismissals = next
-        store.save(next, to: JSONStore.dismissals)
+        store?.save(next, to: JSONStore.dismissals)
     }
 
     private func saveMyDismissals(_ next: Dismissals) {
         myDismissals = next
-        store.save(next, to: JSONStore.myDismissals)
+        store?.save(next, to: JSONStore.myDismissals)
     }
 
     private func saveAcknowledged(_ next: Set<String>) {
         acknowledged = next
         isAcknowledgedBaselined = true
-        store.save(next, to: JSONStore.myAcknowledged)
+        store?.save(next, to: JSONStore.myAcknowledged)
     }
 
     var storyWorkspace: String? {
@@ -160,7 +188,7 @@ final class AppModel {
         guard next != settings else { return }
         let isIntervalChanged = next.intervalMinutes != settings.intervalMinutes
         settings = next
-        store.save(next, to: JSONStore.settings)
+        store?.save(next, to: JSONStore.settings)
         if isIntervalChanged { schedule() }
         if refreshAfter { Task { await refresh() } }
     }
@@ -216,6 +244,7 @@ final class AppModel {
     private(set) var notificationPermission = "Checking…"
 
     func checkNotificationPermission() {
+        guard store != nil else { return }
         Task { notificationPermission = await notifier.permission() }
     }
 
@@ -255,7 +284,7 @@ final class AppModel {
     /// Fetches the review queue and your own PRs, then resolves Linear review links for both in one pass so the shared
     /// cache isn't pruned by either list alone. A list that fails keeps its previous PRs and shows its own error.
     func refresh() async {
-        guard !isLoading else { return }
+        guard let store, !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
         let current = settings
@@ -347,14 +376,14 @@ final class AppModel {
     private func announce(_ prs: [QueuePr]) {
         let evaluation = evaluateAlerts(previous: alertState, prs: prs, settings: settings)
         alertState = evaluation.state
-        store.save(evaluation.state, to: JSONStore.alertState)
+        store?.save(evaluation.state, to: JSONStore.alertState)
         post(evaluation.alerts)
     }
 
     private func announceMine(closures: [String: PrClosure]) {
         let evaluation = evaluateMyAlerts(previous: myAlertState, prs: myPrs, closures: closures, context: myContext, dismissals: myDismissals)
         myAlertState = evaluation.state
-        store.save(evaluation.state, to: JSONStore.myAlertState)
+        store?.save(evaluation.state, to: JSONStore.myAlertState)
         post(evaluation.alerts)
     }
 

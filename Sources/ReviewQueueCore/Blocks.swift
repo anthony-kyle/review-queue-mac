@@ -34,11 +34,11 @@ public struct HiddenCounts: Equatable, Sendable {
 
     public var isEmpty: Bool { approved == 0 && changesRequested == 0 }
 
-    /// The block's hidden line, e.g. `2 approved by others, 1 changes requested by others hidden`; nil when none.
+    /// The block's hidden line, e.g. `2 approved by others, 1 with changes requested by others hidden`; nil when none.
     public var note: String? {
         let parts = [
             approved > 0 ? "\(approved) approved by others" : nil,
-            changesRequested > 0 ? "\(changesRequested) changes requested by others" : nil,
+            changesRequested > 0 ? "\(changesRequested) with changes requested by others" : nil,
         ].compactMap(\.self)
         return parts.isEmpty ? nil : "\(parts.joined(separator: ", ")) hidden"
     }

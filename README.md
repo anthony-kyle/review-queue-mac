@@ -2,9 +2,9 @@
 
 A menu bar app with two menu bar items in one process:
 
-<p style="display: flex; flex-wrap: 0; width 100%; align-content: flex-start;">
-<img style="width: 49%" alt="My PR's" src="https://github.com/user-attachments/assets/21d761d8-5c24-40b6-94d5-f48f3d104972" />
-<img style="width: 49%" alt="Review Queue" src="https://github.com/user-attachments/assets/92b75ebc-58c6-41bd-81e3-59712a9b63e1" />
+<p>
+<img width="49%" alt="Review queue menu" src="docs/images/review-queue.png" />
+<img width="49%" alt="My PRs menu" src="docs/images/my-prs.png" />
 </p>
 
 - **Review queue**: teammates' open GitHub PRs that are waiting on your review, grouped into High priority, Needs review, Waiting on author, Approved by you, Drafts and Low priority. It is a native port of the `review-queue` Claude Code mod: the same GitHub queries, block rules, card details and settings, plus notifications.
@@ -25,7 +25,10 @@ make test   # swift test
 make app    # release build, assembles build/ReviewQueue.app and code-signs it
 make run    # make app, then open it
 make install  # make app, replace /Applications/ReviewQueue.app and relaunch it
+make screenshots  # make app, then capture both menus and every Settings tab on demo data to docs/images
 ```
+
+`make screenshots` launches the app with `--screenshots <shot>`, which swaps in built-in fake data (no network, disk, Keychain or notifications) and shows one screen per run. It brings each run to the front through System Events, since Liquid Glass only draws its tints in the active app, so the terminal needs Automation access to System Events and Screen Recording access for `screencapture`. Run it on a Retina display for 2x images.
 
 ### Build it yourself
 
@@ -44,6 +47,12 @@ Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.Rev
 ### Settings
 
 The settings window has three tabs, and each menu's Settings button opens its own:
+
+<p>
+<img width="32%" alt="Review queue settings" src="docs/images/settings-review-queue.png" />
+<img width="32%" alt="My PRs settings" src="docs/images/settings-my-prs.png" />
+<img width="32%" alt="General settings" src="docs/images/settings-general.png" />
+</p>
 
 - **Review queue**: teams, repo access, per-block sort, approved-by-others and changes-requested-by-others inclusions, and pinned / muted authors, and the queue's notification rules.
 - **My PRs**: excluded orgs and repos, bot comments, ignored commenters, notification rules and per-block sort.
