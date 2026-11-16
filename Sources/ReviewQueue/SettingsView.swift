@@ -146,7 +146,7 @@ private struct GeneralSettings: View {
         } header: {
             Text("Ignored CI sources")
         } footer: {
-            Text("Failing checks from these workflows or CI apps stop counting as CI failing, in both menus. Right-click a failing check on a card to ignore its source.")
+            Text("Failing checks from these workflows or CI apps stop counting as CI failing, in both menus. Click the speaker beside a failing check on a card to mute its source.")
         }
     }
 
