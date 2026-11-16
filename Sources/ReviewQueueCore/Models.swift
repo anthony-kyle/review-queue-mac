@@ -120,6 +120,23 @@ public struct BlockPrefs: Codable, Equatable, Sendable {
     }
 }
 
+/// A failing CI check and the source that reported it: the workflow for GitHub Actions, otherwise the CI app or the
+/// status's creator (for example `vercel`).
+public struct FailedCheck: Codable, Hashable, Sendable {
+    public let name: String
+    public let source: String
+
+    public init(name: String, source: String) {
+        self.name = name
+        self.source = source
+    }
+}
+
+public extension [FailedCheck] {
+    var names: [String] { map(\.name) }
+    var sources: [String] { Set(map { $0.source }).sorted() }
+}
+
 public struct Commenter: Codable, Equatable, Sendable {
     public let login: String
     public let count: Int
@@ -144,10 +161,11 @@ public struct QueuePr: Codable, Equatable, Identifiable, Sendable {
     public let unresolvedThreads: Int
     public let totalThreads: Int
     public let commenters: [Commenter]
-    public let ci: String?
-    public let failingChecks: [String]
+    public var ci: String?
+    public var failingChecks: [FailedCheck]
     public let neutralChecks: [String]
     public let pendingChecks: [String]
+    public var ignoredChecks: [FailedCheck] = []
     public let createdAt: String
     public let updatedAt: String
     public var latestCommentUrl: String? = nil
@@ -184,9 +202,11 @@ public protocol TrackedPr: Identifiable, Equatable, Sendable where ID == String 
     var totalThreads: Int { get }
     var latestCommentUrl: String? { get }
     var firstUnresolvedThreadUrl: String? { get }
-    var ci: String? { get }
-    var failingChecks: [String] { get }
+    var ci: String? { get set }
+    var failingChecks: [FailedCheck] { get set }
+    var ignoredChecks: [FailedCheck] { get set }
     var neutralChecks: [String] { get }
+    var pendingChecks: [String] { get }
     var createdAt: String { get }
     var updatedAt: String { get }
 }

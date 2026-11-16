@@ -98,7 +98,7 @@ import Testing
 
     @Test func ciAlertsWhenItTurnsFailingOnTheHead() {
         let passing = makeMyPr(1, ci: "SUCCESS")
-        let failing = makeMyPr(1, ci: "FAILURE", failingChecks: ["test", "lint"])
+        let failing = makeMyPr(1, ci: "FAILURE", failingChecks: [FailedCheck(name: "test", source: "ci"), FailedCheck(name: "lint", source: "ci")])
         let result = evaluate(seen([passing]), [failing])
         #expect(result.alerts.map(\.subtitle) == ["CI failing"])
         #expect(result.alerts.first?.body == "test, lint")

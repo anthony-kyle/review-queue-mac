@@ -109,10 +109,12 @@ final class AppModel {
         if let second = myLists[.needsYou]?.shown.dropFirst().first { myRowExpansion.toggle(second.key, in: MyBlock.needsYou.rawValue) }
     }
 
-    var lists: [Block: BlockList<QueuePr>] { blockLists(prs, settings, dismissals: dismissals) }
+    var lists: [Block: BlockList<QueuePr>] {
+        blockLists(prs.map { $0.ignoringCi(settings.ignoredCiSources) }, settings, dismissals: dismissals)
+    }
 
-    /// Your open PRs minus excluded orgs and repos.
-    var myPrs: [MyPr] { withoutExcluded(myAllPrs, settings.myPrs) }
+    /// Your open PRs minus excluded orgs and repos, with ignored CI sources no longer counted as failing.
+    var myPrs: [MyPr] { withoutExcluded(myAllPrs, settings.myPrs).map { $0.ignoringCi(settings.ignoredCiSources) } }
 
     var myContext: MyPrsContext { MyPrsContext(me: me ?? "", settings: settings.myPrs, acknowledged: acknowledged) }
 
@@ -158,6 +160,11 @@ final class AppModel {
         guard let login = lastIgnored else { return }
         update { $0.myPrs.setIgnored(login, isOn: false) }
         lastIgnored = nil
+    }
+
+    /// Stops counting failing checks from a CI source, on every PR in both menus, until it is reinstated.
+    func setCiSourceIgnored(_ source: String, isOn: Bool) {
+        update { $0.setIgnoredCiSource(source, isOn: isOn) }
     }
 
     private func saveDismissals(_ next: Dismissals) {

@@ -75,13 +75,32 @@ struct ReviewRequestNode: Decodable, Sendable {
     let requestedReviewer: Reviewer?
 }
 
+struct Named: Decodable, Sendable {
+    let name: String?
+}
+
+struct WorkflowRun: Decodable, Sendable {
+    let workflow: Named?
+}
+
+struct CheckSuite: Decodable, Sendable {
+    let app: Named?
+    let workflowRun: WorkflowRun?
+}
+
+/// A CI check as GitHub reports it. `source` is the workflow or CI app (check runs) or the status's creator, with any
+/// `[bot]` suffix removed; nil when GitHub names none.
 enum CheckNode: Decodable, Sendable {
-    case checkRun(name: String, status: String, conclusion: String?)
-    case statusContext(context: String, state: String)
+    case checkRun(name: String, status: String, conclusion: String?, source: String? = nil)
+    case statusContext(context: String, state: String, source: String? = nil)
 
     enum CodingKeys: String, CodingKey {
         case typename = "__typename"
-        case name, status, conclusion, context, state
+        case name, status, conclusion, context, state, checkSuite, creator
+    }
+
+    struct Creator: Decodable {
+        let login: String?
     }
 
     init(from decoder: any Decoder) throws {
@@ -90,10 +109,16 @@ enum CheckNode: Decodable, Sendable {
             self = .checkRun(
                 name: try c.decode(String.self, forKey: .name),
                 status: try c.decode(String.self, forKey: .status),
-                conclusion: try c.decodeIfPresent(String.self, forKey: .conclusion)
+                conclusion: try c.decodeIfPresent(String.self, forKey: .conclusion),
+                source: try c.decodeIfPresent(CheckSuite.self, forKey: .checkSuite).flatMap { $0.workflowRun?.workflow?.name ?? $0.app?.name }
             )
         } else {
-            self = .statusContext(context: try c.decode(String.self, forKey: .context), state: try c.decode(String.self, forKey: .state))
+            let login = try c.decodeIfPresent(Creator.self, forKey: .creator)?.login
+            self = .statusContext(
+                context: try c.decode(String.self, forKey: .context),
+                state: try c.decode(String.self, forKey: .state),
+                source: login.map { $0.hasSuffix("[bot]") ? String($0.dropLast("[bot]".count)) : $0 }
+            )
         }
     }
 }
@@ -223,24 +248,24 @@ extension PrComment {
 }
 
 struct Checks: Equatable, Sendable {
-    var failing: [String] = []
+    var failing: [FailedCheck] = []
     var neutral: [String] = []
     var pending: [String] = []
 }
 
-/// Splits a PR's latest CI checks into failing, neutral and still-running names; skipped runs count as passing. Neutral
-/// is kept apart because tools such as Cursor Bugbot report findings that way without failing the build.
+/// Splits a PR's latest CI checks into failing (with their source), neutral and still-running names; skipped runs count
+/// as passing. A check with no known source is its own source. Neutral is kept apart because tools such as Cursor Bugbot report findings that way without failing the build.
 func checksOf(_ detail: DetailNode) -> Checks {
     var checks = Checks()
     for check in detail.rollup?.contexts.nodes ?? [] {
         switch check {
-        case let .checkRun(name, status, conclusion):
+        case let .checkRun(name, status, conclusion, source):
             if status != "COMPLETED" { checks.pending.append(name) }
             else if conclusion == "NEUTRAL" { checks.neutral.append(name) }
-            else if !passingConclusions.contains(conclusion ?? "") { checks.failing.append(name) }
-        case let .statusContext(context, state):
+            else if !passingConclusions.contains(conclusion ?? "") { checks.failing.append(FailedCheck(name: name, source: source ?? name)) }
+        case let .statusContext(context, state, source):
             if state == "PENDING" || state == "EXPECTED" { checks.pending.append(context) }
-            else if state != "SUCCESS" { checks.failing.append(context) }
+            else if state != "SUCCESS" { checks.failing.append(FailedCheck(name: context, source: source ?? context)) }
         }
     }
     return Checks(failing: unique(checks.failing), neutral: unique(checks.neutral), pending: unique(checks.pending))
@@ -338,6 +363,7 @@ func myPr(_ candidate: Candidate, detail: DetailNode, me: String) -> MyPr {
         ci: detail.rollup?.state,
         failingChecks: checks.failing,
         neutralChecks: checks.neutral,
+        pendingChecks: checks.pending,
         createdAt: pr.createdAt,
         updatedAt: pr.updatedAt,
         latestCommentUrl: latestCommentUrlOf(detail),

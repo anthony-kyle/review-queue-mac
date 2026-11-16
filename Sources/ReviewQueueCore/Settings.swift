@@ -12,6 +12,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     public var hiddenDetails: [CardDetail] = []
     public var blockPrefs: [Block: BlockPrefs] = [:]
     public var linearWorkspace = ""
+    public var ignoredCiSources: [String] = []
     public var notifyHigh = true
     public var repeatHighReminders = true
     public var notifyNeeds = true
@@ -23,7 +24,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case intervalMinutes, teams, repoAccess, highUsers, lowUsers, hiddenDetails, blockPrefs, linearWorkspace
+        case intervalMinutes, teams, repoAccess, highUsers, lowUsers, hiddenDetails, blockPrefs, linearWorkspace, ignoredCiSources
         case notifyHigh, repeatHighReminders, notifyNeeds, notifyReviewRequested, highSound, normalSound, myPrs
     }
 
@@ -38,6 +39,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
         hiddenDetails = try c.value(.hiddenDetails, or: d.hiddenDetails)
         blockPrefs = try c.value(.blockPrefs, or: d.blockPrefs)
         linearWorkspace = try c.value(.linearWorkspace, or: d.linearWorkspace)
+        ignoredCiSources = try c.value(.ignoredCiSources, or: d.ignoredCiSources)
         notifyHigh = try c.value(.notifyHigh, or: d.notifyHigh)
         repeatHighReminders = try c.value(.repeatHighReminders, or: d.repeatHighReminders)
         notifyNeeds = try c.value(.notifyNeeds, or: d.notifyNeeds)
@@ -81,6 +83,12 @@ public struct QueueSettings: Codable, Equatable, Sendable {
 
     public mutating func setDetail(_ detail: CardDetail, isShown: Bool) {
         hiddenDetails = toggled(hiddenDetails, detail, isOn: !isShown)
+    }
+
+    /// Adds (trimmed, ignoring blanks) or removes a CI source whose failing checks stop counting; sources match without case.
+    public mutating func setIgnoredCiSource(_ source: String, isOn: Bool) {
+        let match = ignoredCiSources.first { $0.caseInsensitiveCompare(source.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame }
+        ignoredCiSources = toggledName(ignoredCiSources, match ?? source, isOn: isOn)
     }
 
     public func shows(_ detail: CardDetail) -> Bool {
@@ -144,11 +152,13 @@ public struct MyPrsSettings: Codable, Equatable, Sendable {
         ignoredCommenters = toggledName(ignoredCommenters, login, isOn: isOn)
     }
 
-    private func toggledName(_ list: [String], _ name: String, isOn: Bool) -> [String] {
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return list }
-        return toggled(list, trimmed, isOn: isOn)
-    }
+}
+
+/// `toggled` for a typed-in name: trimmed, and unchanged when blank.
+func toggledName(_ list: [String], _ name: String, isOn: Bool) -> [String] {
+    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return list }
+    return toggled(list, trimmed, isOn: isOn)
 }
 
 /// Adds `item` at the end when absent (`isOn`) or removes it, keeping the existing order.

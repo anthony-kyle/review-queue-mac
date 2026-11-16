@@ -66,7 +66,7 @@ import Testing
             .statusContext(context: "ci/legacy", state: "ERROR"),
             .statusContext(context: "ci/wait", state: "EXPECTED"),
         ], rollupState: "FAILURE")
-        #expect(checksOf(mixed) == Checks(failing: ["deploy-dev", "ci/legacy"], neutral: ["Cursor Bugbot"], pending: ["build", "ci/wait"]))
+        #expect(checksOf(mixed) == Checks(failing: [FailedCheck(name: "deploy-dev", source: "deploy-dev"), FailedCheck(name: "ci/legacy", source: "ci/legacy")], neutral: ["Cursor Bugbot"], pending: ["build", "ci/wait"]))
         #expect(checksOf(detail()) == Checks())
         #expect(checksOf(DetailNode()) == Checks())
     }
@@ -74,7 +74,25 @@ import Testing
     @Test func checkNodesDecodeFromGraphQL() throws {
         let json = #"[{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":null},{"__typename":"StatusContext","context":"ci","state":"SUCCESS"}]"#
         let nodes = try JSONDecoder().decode([CheckNode].self, from: Data(json.utf8))
-        #expect(checksOf(detail(checks: nodes)) == Checks(failing: ["test"]))
+        #expect(checksOf(detail(checks: nodes)) == Checks(failing: [FailedCheck(name: "test", source: "test")]))
+    }
+
+    @Test func checkSourcesComeFromWorkflowAppOrBotCreator() throws {
+        let json = #"""
+            [{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"app":{"name":"GitHub Actions"},"workflowRun":{"workflow":{"name":"CI"}}}},
+             {"__typename":"CheckRun","name":"deploy","status":"COMPLETED","conclusion":"FAILURE","checkSuite":{"app":{"name":"Vercel"},"workflowRun":null}},
+             {"__typename":"CheckRun","name":"lone","status":"COMPLETED","conclusion":"FAILURE","checkSuite":null},
+             {"__typename":"StatusContext","context":"Vercel – app-close","state":"FAILURE","creator":{"login":"vercel[bot]"}},
+             {"__typename":"StatusContext","context":"ci/legacy","state":"ERROR","creator":{"login":"jenkins"}}]
+            """#
+        let nodes = try JSONDecoder().decode([CheckNode].self, from: Data(json.utf8))
+        #expect(checksOf(detail(checks: nodes)).failing == [
+            FailedCheck(name: "build", source: "CI"),
+            FailedCheck(name: "deploy", source: "Vercel"),
+            FailedCheck(name: "lone", source: "lone"),
+            FailedCheck(name: "Vercel – app-close", source: "vercel"),
+            FailedCheck(name: "ci/legacy", source: "jenkins"),
+        ])
     }
 
     @Test func nextLinkReadsRelNext() {

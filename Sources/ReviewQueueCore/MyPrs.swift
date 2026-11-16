@@ -60,9 +60,11 @@ public struct MyPr: TrackedPr {
     public let commentCount: Int
     public let unresolvedThreads: Int
     public let totalThreads: Int
-    public let ci: String?
-    public let failingChecks: [String]
+    public var ci: String?
+    public var failingChecks: [FailedCheck]
     public let neutralChecks: [String]
+    public let pendingChecks: [String]
+    public var ignoredChecks: [FailedCheck] = []
     public let createdAt: String
     public let updatedAt: String
     public var latestCommentUrl: String? = nil

@@ -202,7 +202,7 @@ extension PrRow where Accessory == EmptyView {
 }
 
 /// The grid lines both cards share, each behind its Card details toggle: where (repo and story), why it is listed,
-/// waiting, approvals, changes-requests, activity (comments and threads) and CI with failing / neutral check names. The comments part
+/// waiting, approvals, changes-requests, activity (comments and threads) and CI with failing / ignored / neutral check names; a speaker icon beside the failing or ignored names mutes or unmutes their CI source. The comments part
 /// opens the newest comment and the threads part the first unresolved thread; each is plain text when there is nothing
 /// to open.
 struct StandardDetailRows<Pr: TrackedPr>: View {
@@ -230,12 +230,13 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
         if settings.shows(.comments) || settings.shows(.threads) {
             CardField("Activity") { activityValue }
         }
-        if settings.shows(.ci) || hasFailing || hasNeutral {
+        if settings.shows(.ci) || hasFailing || hasIgnored || hasNeutral {
             CardField("CI") { ciValue }
         }
     }
 
     private var hasFailing: Bool { settings.shows(.failing) && !pr.failingChecks.isEmpty }
+    private var hasIgnored: Bool { settings.shows(.failing) && !pr.ignoredChecks.isEmpty }
     private var hasNeutral: Bool { settings.shows(.neutral) && !pr.neutralChecks.isEmpty }
 
     private var shownReason: PrSignal? { settings.shows(.reason) ? reason : nil }
@@ -290,6 +291,23 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
         .lineLimit(1)
     }
 
+    private func ciLine(_ text: String, color: Color, checks: [FailedCheck], isIgnored: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(text).foregroundStyle(color)
+            ForEach(checks.sources, id: \.self) { source in
+                let help = isIgnored ? "Unmute \(source) checks" : "Mute \(source) checks: stop counting their failures, on every PR"
+                Button { model.setCiSourceIgnored(source, isOn: !isIgnored) } label: {
+                    Image(systemName: isIgnored ? "speaker.wave.2" : "speaker.slash")
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .font(.caption)
+                .help(help)
+                .accessibilityLabel(help)
+            }
+        }
+    }
+
     private var ciValue: some View {
         VStack(alignment: .leading, spacing: 2) {
             if settings.shows(.ci) {
@@ -297,7 +315,10 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
                 Text(ci.text).foregroundStyle(ci.tone.color)
             }
             if hasFailing {
-                Text(nameList(pr.failingChecks)).foregroundStyle(.red)
+                ciLine(nameList(pr.failingChecks.names), color: .red, checks: pr.failingChecks, isIgnored: false)
+            }
+            if hasIgnored {
+                ciLine("\(nameList(pr.ignoredChecks.names)) (ignored)", color: .secondary, checks: pr.ignoredChecks, isIgnored: true)
             }
             if hasNeutral {
                 Text("\(nameList(pr.neutralChecks)) (neutral)").foregroundStyle(.blue)
