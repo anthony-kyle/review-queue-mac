@@ -278,6 +278,11 @@ final class AppModel {
         NSWorkspace.shared.open(url)
     }
 
+    func copy(_ link: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(link, forType: .string)
+    }
+
     func refreshIfStale() {
         let oldest = [fetchedAt, myFetchedAt].map { $0 ?? .distantPast }.min() ?? .distantPast
         if Date().timeIntervalSince(oldest) > Double(settings.intervalMinutes * 60) { Task { await refresh() } }

@@ -10,6 +10,8 @@ A menu bar app with two menu bar items in one process:
 - **Review queue**: teammates' open GitHub PRs that are waiting on your review, grouped into High priority, Needs review, Waiting on author, Approved by you, Drafts and Low priority. It is a native port of the `review-queue` Claude Code mod: the same GitHub queries, block rules, card details and settings, plus notifications.
 - **My PRs**: your own open PRs across every org, grouped by what they need from you, with notifications on review activity, CI, conflicts and merges.
 
+Each card's GitHub Review and Linear Review buttons open those pages; the link icon beside each copies its URL to the clipboard instead.
+
 Both share one settings window, one Linear sign-in, the refresh timer, the loud alert sound, launch at login and the notifier.
 
 ## Requirements
