@@ -197,7 +197,7 @@ extension PrRow where Accessory == EmptyView {
     }
 }
 
-/// The grid lines both cards share, each behind its Card details toggle: where (repo and story), why it is listed,
+/// The grid lines both cards share, each behind its Card details toggle: where (repo, and story with a copy icon), why it is listed,
 /// waiting, approvals, changes-requests, activity (comments and threads) and CI with failing / ignored / neutral check names; a speaker icon beside the failing or ignored names mutes or unmutes their CI source. The comments part
 /// opens the newest comment and the threads part the first unresolved thread; each is plain text when there is nothing
 /// to open.
@@ -258,6 +258,9 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
             if let story = pr.storyId {
                 Text("·").foregroundStyle(.secondary)
                 LinkText(story, action: model.storyWorkspace.map { workspace in { model.open("https://linear.app/\(workspace)/issue/\(story)") } })
+                CopyButton(model: model, value: story, label: "Copy \(story)")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
             }
         }
         .lineLimit(1)
@@ -323,30 +326,41 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
     }
 }
 
-/// A review button that opens `link`, paired with a link icon that copies it to the clipboard without navigating. The
-/// icon shows a checkmark for a moment after copying.
+/// A review button that opens `link`, paired with a `CopyButton` that copies it to the clipboard without navigating.
 struct ReviewLinkButton: View {
     let model: AppModel
     let title: String
     let link: String
     let tint: Color
-    @State private var copiedAt: Date?
 
     var body: some View {
         HStack(spacing: 4) {
             Button(title) { model.open(link) }
                 .buttonStyle(.glassProminent)
                 .tint(tint)
-            Button(action: copy) { Image(systemName: copiedAt == nil ? "link" : "checkmark") }
-                .buttonStyle(.plain)
+            CopyButton(model: model, value: link, label: "Copy \(title) link")
                 .foregroundStyle(tint)
-                .help("Copy \(title) link")
-                .accessibilityLabel("Copy \(title) link")
         }
+    }
+}
+
+/// A plain link icon that copies `value` to the clipboard, showing a checkmark for a moment after. Colour and font come
+/// from the caller.
+struct CopyButton: View {
+    let model: AppModel
+    let value: String
+    let label: String
+    @State private var copiedAt: Date?
+
+    var body: some View {
+        Button(action: copy) { Image(systemName: copiedAt == nil ? "link" : "checkmark") }
+            .buttonStyle(.plain)
+            .help(label)
+            .accessibilityLabel(label)
     }
 
     private func copy() {
-        model.copy(link)
+        model.copy(value)
         let stamp = Date()
         copiedAt = stamp
         Task {
