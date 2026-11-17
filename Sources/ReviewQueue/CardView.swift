@@ -156,13 +156,9 @@ struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
 
     private var actions: some View {
         HStack(spacing: 6) {
-            Button("GitHub Review") { model.open(pr.url) }
-                .buttonStyle(.glassProminent)
-                .tint(.githubPurple)
+            ReviewLinkButton(model: model, title: "GitHub Review", link: pr.url, tint: .githubPurple)
             if let linear = pr.linearReviewUrl {
-                Button("Linear Review") { model.open(linear) }
-                    .buttonStyle(.glassProminent)
-                    .tint(.linearIndigo)
+                ReviewLinkButton(model: model, title: "Linear Review", link: linear, tint: .linearIndigo)
             }
             Spacer(minLength: 8)
             accessory()
@@ -323,6 +319,39 @@ struct StandardDetailRows<Pr: TrackedPr>: View {
             if hasNeutral {
                 Text("\(nameList(pr.neutralChecks)) (neutral)").foregroundStyle(.blue)
             }
+        }
+    }
+}
+
+/// A review button that opens `link`, paired with a link icon that copies it to the clipboard without navigating. The
+/// icon shows a checkmark for a moment after copying.
+struct ReviewLinkButton: View {
+    let model: AppModel
+    let title: String
+    let link: String
+    let tint: Color
+    @State private var copiedAt: Date?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button(title) { model.open(link) }
+                .buttonStyle(.glassProminent)
+                .tint(tint)
+            Button(action: copy) { Image(systemName: copiedAt == nil ? "link" : "checkmark") }
+                .buttonStyle(.plain)
+                .foregroundStyle(tint)
+                .help("Copy \(title) link")
+                .accessibilityLabel("Copy \(title) link")
+        }
+    }
+
+    private func copy() {
+        model.copy(link)
+        let stamp = Date()
+        copiedAt = stamp
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            if copiedAt == stamp { copiedAt = nil }
         }
     }
 }
