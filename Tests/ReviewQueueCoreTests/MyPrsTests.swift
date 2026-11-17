@@ -176,7 +176,7 @@ import Testing
         #expect(pr.comments.first?.isBot == true)
         #expect(pr.comments.first { $0.id == "T1" }?.body == "Why this?")
         #expect(pr.requestedReviewers == ["bob", "team-eng"])
-        #expect(pr.failingChecks == ["test"])
+        #expect(pr.failingChecks == [FailedCheck(name: "test", source: "test")])
         #expect(pr.unresolvedThreads == 1)
         #expect(pr.latestCommentUrl == "https://github.com/acme/app/pull/7#issuecomment-3")
         #expect(pr.firstUnresolvedThreadUrl == "https://github.com/acme/app/pull/7#discussion_r1")

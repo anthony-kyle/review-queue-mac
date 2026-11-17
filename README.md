@@ -56,7 +56,11 @@ The settings window has three tabs, and each menu's Settings button opens its ow
 
 - **Review queue**: teams, repo access, per-block sort, approved-by-others and changes-requested-by-others inclusions, and pinned / muted authors, and the queue's notification rules.
 - **My PRs**: excluded orgs and repos, bot comments, ignored commenters, notification rules and per-block sort.
-- **General**: Linear sign-in and workspace slug, refresh interval, card details (shared by both menus), the loud alert sound with a Test button, and launch at login.
+- **General**: Linear sign-in and workspace slug, refresh interval, card details (shared by both menus), ignored CI sources, the loud alert sound with a Test button, and launch at login.
+
+### Ignored CI sources
+
+Some failing checks are not yours to fix, such as an org-wide Vercel integration your team does not deploy with. Click the speaker beside a failing check on any card to mute its source: the workflow (GitHub Actions), the CI app, or the bot that posted the status. Every check from that source then shows greyed as `(ignored)`, and stops counting as CI failing in both menus, their signals, reasons, blocks, pills and alerts. If nothing else fails, the PR reads as passing (or running while checks are pending). Click the speaker again, or use Remove in Settings › General, to count it again.
 
 ### Menu bar pills
 

@@ -79,7 +79,7 @@ public func evaluateMyAlerts(
             }
         }
         if settings.notifyCiFailing, isCiFailing(pr.ci), !previous.failing.contains(failingToken(pr)) {
-            normal.append(alert(pr, id: "\(pr.key)#ci", subtitle: "CI failing", body: nameList(pr.failingChecks)))
+            normal.append(alert(pr, id: "\(pr.key)#ci", subtitle: "CI failing", body: nameList(pr.failingChecks.names)))
         }
         if settings.notifyConflict, pr.isConflicting, !previous.conflicting.contains(pr.key) {
             normal.append(alert(pr, id: "\(pr.key)#conflict", subtitle: "Merge conflict"))

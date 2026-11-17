@@ -15,7 +15,7 @@ public struct DemoData: Sendable {
     public let fetchedAt: Date
 
     /// High priority holds a daily-group PR with others' approval and changes-request and one updated after your
-    /// changes, which links the diff since your review; Needs review shows three PRs and hides two approved by others and one with changes requested by others.
+    /// changes, which links the diff since your review and fails only a muted Vercel check; Needs review shows three PRs and hides two approved by others and one with changes requested by others.
     /// My PRs has two that need you, two ready to merge, one with reviewers and a draft, plus one in an excluded repo; the
 /// bot's comment is from an ignored commenter, so CI alone puts its PR in Needs you.
     public init(now: Date) {
@@ -26,6 +26,7 @@ public struct DemoData: Sendable {
         settings.linearWorkspace = Self.linearWorkspace
         settings.myPrs.excludedRepos = ["acme/acme-db-migrations"]
         settings.myPrs.ignoredCommenters = ["datadog-official"]
+        settings.ignoredCiSources = ["vercel"]
         self.settings = settings
         people = ["alex-morgan", "jdoe", "priya-n", "sam-rivera"]
         teams = settings.teams + ["acme/mobile"]
@@ -38,7 +39,8 @@ public struct DemoData: Sendable {
             ),
             queuePr(
                 412, "acme-finance-lib", "fix(finance): round tax totals per line, not per invoice", author: "jdoe", story: 1043,
-                myReview: .changesAddressed, sinceMyReview: true, comments: 3, threads: (0, 2), created: at.hours(20),
+                myReview: .changesAddressed, sinceMyReview: true, comments: 3, threads: (0, 2),
+                ci: "FAILURE", failing: checks("Vercel – acme-finance-lib", source: "vercel"), created: at.hours(20),
                 updated: at.hours(1)
             ),
             queuePr(
@@ -51,7 +53,7 @@ public struct DemoData: Sendable {
             ),
             queuePr(
                 305, "acme-tools", "build(tools): cache pnpm store in CI", author: "jdoe", story: 1047,
-                ci: "FAILURE", failing: ["lint", "test (unit)"], created: at.days(1), updated: at.hours(2)
+                ci: "FAILURE", failing: checks("lint", "test (unit)"), created: at.days(1), updated: at.hours(2)
             ),
             queuePr(
                 803, "acme-web", "refactor(web): move table pagination into a hook", author: "sam-rivera", story: 1048,
@@ -101,7 +103,7 @@ public struct DemoData: Sendable {
                         url: "https://github.com/acme/acme-finance-lib/pull/431#issuecomment-3"
                     ),
                 ],
-                ci: "FAILURE", failing: ["test (postgres 16)"], created: at.hours(20), updated: at.hours(6)
+                ci: "FAILURE", failing: checks("test (postgres 16)"), created: at.hours(20), updated: at.hours(6)
             ),
             myPr(
                 102, "acme-db-migrations", "chore(db): drop the legacy invoice_totals view", story: 1059,
@@ -132,6 +134,11 @@ public struct DemoData: Sendable {
     }
 }
 
+/// Failing checks reported by `source`, or each by its own name when none is given.
+private func checks(_ names: String..., source: String? = nil) -> [FailedCheck] {
+    names.map { FailedCheck(name: $0, source: source ?? $0) }
+}
+
 /// ISO times a fixed distance before `now`.
 private struct DemoClock {
     let now: Date
@@ -156,7 +163,7 @@ private func queuePr(
     comments: Int = 0,
     threads: (unresolved: Int, total: Int) = (0, 0),
     ci: String = "SUCCESS",
-    failing: [String] = [],
+    failing: [FailedCheck] = [],
     neutral: [String] = [],
     created: String,
     updated: String
@@ -205,7 +212,7 @@ private func myPr(
     requested: [String] = [],
     threads: (unresolved: Int, total: Int) = (0, 0),
     ci: String = "SUCCESS",
-    failing: [String] = [],
+    failing: [FailedCheck] = [],
     created: String,
     updated: String
 ) -> MyPr {
@@ -233,6 +240,7 @@ private func myPr(
         ci: ci,
         failingChecks: failing,
         neutralChecks: [],
+        pendingChecks: [],
         createdAt: created,
         updatedAt: updated,
         latestCommentUrl: comments.last?.url,

@@ -17,6 +17,13 @@ import Testing
         #expect(lists[.approved]?.shown.count == 1)
     }
 
+    @Test func expandedHighPriorityCardShowsOnlyAMutedVercelFailure() {
+        let card = demo.prs.dropFirst().first?.ignoringCi(demo.settings.ignoredCiSources)
+        #expect(card?.ci == "SUCCESS")
+        #expect(card?.failingChecks.isEmpty == true)
+        #expect(card?.ignoredChecks.names == ["Vercel – acme-finance-lib"])
+    }
+
     @Test func myPrsFillNeedsYouReadyWaitingAndDrafts() {
         let context = MyPrsContext(me: DemoData.me, settings: demo.settings.myPrs, acknowledged: [])
         let lists = myBlockLists(withoutExcluded(demo.myPrs, demo.settings.myPrs), context)

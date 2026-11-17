@@ -71,7 +71,8 @@ func makeMyPr(
     comments: [PrComment] = [],
     unresolvedThreads: Int = 0,
     ci: String? = "SUCCESS",
-    failingChecks: [String] = [],
+    failingChecks: [FailedCheck] = [],
+    pendingChecks: [String] = [],
     createdAt: String = "2026-10-01T00:00:00Z",
     updatedAt: String? = nil
 ) -> MyPr {
@@ -98,6 +99,7 @@ func makeMyPr(
         ci: ci,
         failingChecks: failingChecks,
         neutralChecks: [],
+        pendingChecks: pendingChecks,
         createdAt: createdAt,
         updatedAt: updatedAt ?? createdAt
     )

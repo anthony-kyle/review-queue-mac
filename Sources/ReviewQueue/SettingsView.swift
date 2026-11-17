@@ -82,6 +82,7 @@ private struct GeneralSettings: View {
                 }
             }
             cardDetails
+            ignoredCiSources
             Section {
                 HStack {
                     Picker("Loud alert sound", selection: settingsBinding(model, \.highSound)) {
@@ -130,6 +131,22 @@ private struct GeneralSettings: View {
             Text("Card details")
         } footer: {
             Text("Choose which lines each card shows, in both menus. Pin / mute buttons only appear in the review queue.")
+        }
+    }
+
+    private var ignoredCiSources: some View {
+        Section {
+            if model.settings.ignoredCiSources.isEmpty {
+                Text("No ignored CI sources.").foregroundStyle(.secondary)
+            }
+            ForEach(model.settings.ignoredCiSources, id: \.self) { source in
+                RemovableRow(name: source) { model.setCiSourceIgnored(source, isOn: false) }
+            }
+            AddField(title: "CI source", prompt: "e.g. vercel") { model.setCiSourceIgnored($0, isOn: true) }
+        } header: {
+            Text("Ignored CI sources")
+        } footer: {
+            Text("Failing checks from these workflows or CI apps stop counting as CI failing, in both menus. Click the speaker beside a failing check on a card to mute its source.")
         }
     }
 
