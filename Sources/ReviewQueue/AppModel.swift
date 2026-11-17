@@ -49,7 +49,7 @@ final class AppModel {
     @ObservationIgnored private let store: JSONStore?
     @ObservationIgnored private let notifier = Notifier()
     @ObservationIgnored private let sound = AlertSound()
-    @ObservationIgnored private let linearTokens = LinearTokenProvider(oauth: LinearOAuth(), storage: Keychain.linearTokenStorage)
+    @ObservationIgnored private lazy var linearTokens = LinearTokenProvider(oauth: LinearOAuth(), storage: Keychain.linearTokenStorage)
     @ObservationIgnored private var linear: LinearMCPClient?
     @ObservationIgnored private var linearSignIn: Task<Void, Never>?
     @ObservationIgnored private var alertState: AlertState?
