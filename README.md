@@ -42,7 +42,7 @@ Run `make install` before turning on Launch at login, since `SMAppService` regis
 
 ## Using it
 
-Open Settings from the review queue's menu bar window and pick your GitHub teams. Open PRs in those teams' repos (owned or writable, your choice) make up the queue, minus your own PRs and bot PRs. Both lists refresh together every 15 minutes by default (5, 10, 15, 30 or 60), on wake from sleep, and when you open either menu with data older than the interval. A failure in one list shows on its own menu and leaves the other untouched.
+Open Settings from the review queue's menu bar window and pick your GitHub teams. Open PRs in those teams' repos (owned or writable, your choice) make up the queue, minus your own PRs and bot PRs (unless you list the bot under Allowed bot authors). Both lists refresh together every 15 minutes by default (5, 10, 15, 30 or 60), on wake from sleep, and when you open either menu with data older than the interval. A failure in one list shows on its own menu and leaves the other untouched.
 
 Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.ReviewQueue/`, next to the notification seen-state of both menus, the Done marks, the acknowledged My PRs comments, the Linear lookup cache and the registered Linear OAuth client id. The Linear OAuth tokens live in the Keychain.
 
@@ -56,7 +56,7 @@ The settings window has three tabs, and each menu's Settings button opens its ow
 <img width="32%" alt="General settings" src="docs/images/settings-general.png" />
 </p>
 
-- **Review queue**: teams, repo access, per-block sort, approved-by-others and changes-requested-by-others inclusions, and pinned / muted authors, and the queue's notification rules.
+- **Review queue**: teams, repo access, allowed bot authors, per-block sort, approved-by-others and changes-requested-by-others inclusions, and pinned / muted authors, and the queue's notification rules.
 - **My PRs**: excluded orgs and repos, bot comments, ignored commenters, notification rules and per-block sort.
 - **General**: Linear sign-in and workspace slug, refresh interval, card details (shared by both menus), ignored CI sources, the loud alert sound with a Test button, and launch at login.
 

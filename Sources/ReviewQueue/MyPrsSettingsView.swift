@@ -34,12 +34,11 @@ struct MyPrsSettingsView: View {
             }
             Section {
                 Toggle("Count bot comments", isOn: myBinding(\.isBotCommentsShown))
-                if settings.ignoredCommenters.isEmpty {
-                    Text("No ignored commenters.").foregroundStyle(.secondary)
-                }
-                ForEach(settings.ignoredCommenters, id: \.self) { login in
-                    RemovableRow(name: login) { model.update { $0.myPrs.setIgnored(login, isOn: false) } }
-                }
+                LoginList(
+                    logins: settings.ignoredCommenters,
+                    emptyText: "No ignored commenters.",
+                    onRemove: { login in model.update { $0.myPrs.setIgnored(login, isOn: false) } }
+                )
             } header: {
                 Text("Comments")
             } footer: {

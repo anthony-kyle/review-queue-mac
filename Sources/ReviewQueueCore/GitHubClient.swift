@@ -106,10 +106,10 @@ public actor GitHubClient {
         try await restPages("user/teams", as: TeamJSON.self).map { "\($0.organization.login)/\($0.slug)" }.sorted()
     }
 
-    /// Lists open, human-authored PRs (not yours) in the repos the chosen teams hold at the chosen access, with your review
+    /// Lists open PRs (not yours) by humans and by the bots `settings` allows in the repos the chosen teams hold at the chosen access, with your review
     /// standing, comment counts and CI state. Two passes: a light list over every repo, then details in batches, which
     /// keeps each GraphQL query under GitHub's node limit. Repos and members are unioned across `teams`.
-    public func fetchQueue(teams: [String], access: RepoAccess) async throws -> FetchResult {
+    public func fetchQueue(teams: [String], access: RepoAccess, settings: QueueSettings) async throws -> FetchResult {
         let me = try await viewerLogin()
         var repos: [Repo] = []
         var members: [String] = []
@@ -117,7 +117,7 @@ public actor GitHubClient {
             repos += try await teamRepos(team, access: access)
             members += try await teamMembers(team)
         }
-        let candidates = try await listCandidates(unique(repos), me: me)
+        let candidates = try await listCandidates(unique(repos), me: me, settings: settings)
         let prs = try await detailed(candidates, fragment: Self.queueFragment).map { queuePr($0, detail: $1, me: me) }
         let people = Set(members + prs.map(\.author)).filter { $0 != me }.sorted()
         return FetchResult(prs: prs, people: people, me: me)
@@ -191,7 +191,7 @@ public actor GitHubClient {
         return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
     }
 
-    private func listCandidates(_ repos: [Repo], me: String) async throws -> [Candidate] {
+    private func listCandidates(_ repos: [Repo], me: String, settings: QueueSettings) async throws -> [Candidate] {
         var found: [Candidate] = []
         for start in stride(from: 0, to: repos.count, by: Self.repoBatch) {
             let batch = Array(repos[start..<min(start + Self.repoBatch, repos.count)])
@@ -205,7 +205,7 @@ public actor GitHubClient {
                 }
             }
         }
-        return found.filter { !isBot($0.node.author) && $0.node.author?.login != me }
+        return found.filter { isQueueAuthor($0.node.author, me: me, settings) }
     }
 
     private func fetchDetails(_ batch: [Candidate], fragment: String) async throws -> [DetailNode?] {

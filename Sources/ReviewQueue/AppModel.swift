@@ -302,7 +302,7 @@ final class AppModel {
         let queue: Result<(FetchResult, [String]), any Error>
         do {
             let teams = try await github.listMyTeams()
-            let result = current.teams.isEmpty ? FetchResult.empty : try await github.fetchQueue(teams: current.teams, access: current.repoAccess)
+            let result = current.teams.isEmpty ? FetchResult.empty : try await github.fetchQueue(teams: current.teams, access: current.repoAccess, settings: current)
             queue = .success((result, teams))
         } catch {
             queue = .failure(error)
