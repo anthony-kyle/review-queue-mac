@@ -2,7 +2,7 @@ import ReviewQueueCore
 import SwiftUI
 
 /// One of your PRs as a shared row: where, why it needs you, the shared detail rows, who is still requested, and its
-/// new comments, each with No follow-up and Ignore buttons.
+/// new comments, each with No follow-up and Ignore buttons. Done shows only in Needs you.
 struct MyPrCardView: View {
     let model: AppModel
     let pr: MyPr
@@ -20,7 +20,11 @@ struct MyPrCardView: View {
             signal: mySignal(pr, context),
             isExpanded: model.myRowExpansion.isExpanded(pr.key, in: block.rawValue, byDefault: block.areRowsExpandedByDefault),
             onToggle: { model.myRowExpansion.toggle(pr.key, in: block.rawValue) },
-            onDone: { model.markDone(pr) }
+            done: block == .needsYou
+                ? DoneAction(help: "Clear changes requested and new comments until this PR next changes") {
+                    model.markDone(pr)
+                }
+                : nil
         ) {
             StandardDetailRows(
                 model: model,

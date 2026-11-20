@@ -9,10 +9,9 @@ import Testing
         _ previous: MyAlertState?,
         _ prs: [MyPr],
         closures: [String: PrClosure] = [:],
-        context: MyPrsContext? = nil,
-        dismissals: Dismissals = [:]
+        context: MyPrsContext? = nil
     ) -> MyAlertEvaluation {
-        evaluateMyAlerts(previous: previous, prs: prs, closures: closures, context: context ?? self.context, dismissals: dismissals)
+        evaluateMyAlerts(previous: previous, prs: prs, closures: closures, context: context ?? self.context)
     }
 
     /// The state a previous refresh of `prs` would have left.
@@ -156,12 +155,14 @@ import Testing
         #expect(evaluate(seen(before), Array(after.prefix(3)) + [before[3]]).alerts.count == 3)
     }
 
-    @Test func markedDonePrsStaySilentButAreRecorded() {
-        let pr = makeMyPr(1, comments: [prComment("c1")], ci: "FAILURE")
+    @Test func markedDonePrsStayQuietAboutCommentsAndReviewsButStillAlertOnCiAndConflicts() {
+        let pr = makeMyPr(1, mergeable: "CONFLICTING", reviews: [prReview("r1", by: "alice", "CHANGES_REQUESTED")], comments: [prComment("c1")], ci: "FAILURE")
         let previous = seen([makeMyPr(1)])
-        let result = evaluate(previous, [pr], dismissals: [pr.key: pr.updatedAt])
-        #expect(result.alerts.isEmpty)
+        let done = myContext(dismissals: [pr.key: pr.updatedAt])
+        let result = evaluate(previous, [pr], context: done)
+        #expect(result.alerts.map(\.subtitle) == ["CI failing", "Merge conflict"])
         #expect(result.state.comments == ["c1"])
-        #expect(evaluate(result.state, [pr]).alerts.isEmpty)
+        #expect(result.state.reviews == ["r1"])
+        #expect(evaluate(result.state, [pr], context: done).alerts.isEmpty)
     }
 }

@@ -24,12 +24,13 @@ import Testing
         #expect(card?.ignoredChecks.names == ["Vercel – acme-finance-lib"])
     }
 
-    @Test func myPrsFillNeedsYouReadyWaitingAndDrafts() {
+    @Test func myPrsFillNeedsYouReadyWaitingBehindAndDrafts() {
         let context = MyPrsContext(me: DemoData.me, settings: demo.settings.myPrs, acknowledged: [])
         let lists = myBlockLists(withoutExcluded(demo.myPrs, demo.settings.myPrs), context)
         #expect(lists[.needsYou]?.shown.count == 2)
-        #expect(lists[.ready]?.shown.count == 2)
+        #expect(lists[.ready]?.shown.map(\.isBehind) == [true])
         #expect(lists[.waiting]?.shown.count == 1)
+        #expect(lists[.behind]?.shown.count == 1)
         #expect(lists[.drafts]?.shown.count == 1)
         #expect(demo.myPrs.count == 7)
         #expect(lists[.needsYou]?.shown.flatMap { newComments($0, context) }.map(\.author) == ["priya-n", "cursor"])

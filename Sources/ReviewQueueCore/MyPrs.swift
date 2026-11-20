@@ -21,7 +21,7 @@ public struct PrReview: Equatable, Sendable {
 }
 
 public enum MyBlock: String, Codable, CodingKeyRepresentable, CaseIterable, Identifiable, Sendable {
-    case needsYou, ready, waiting, drafts
+    case needsYou, ready, waiting, behind, drafts
 
     public var id: String { rawValue }
 
@@ -30,6 +30,7 @@ public enum MyBlock: String, Codable, CodingKeyRepresentable, CaseIterable, Iden
         case .needsYou: "Needs you"
         case .ready: "Ready to merge"
         case .waiting: "Waiting on reviewers"
+        case .behind: "Behind main"
         case .drafts: "Drafts"
         }
     }
@@ -54,6 +55,7 @@ public struct MyPr: TrackedPr {
     public let headRefOid: String
     public let reviewDecision: String?
     public let mergeable: String?
+    public let mergeStateStatus: String?
     public let reviews: [PrReview]
     public let comments: [PrComment]
     public let requestedReviewers: [String]
@@ -83,6 +85,10 @@ public struct MyPr: TrackedPr {
 
     public var isConflicting: Bool { mergeable == "CONFLICTING" }
 
+    /// The base branch has moved on and branch protection wants the head brought up to date before merging. GitHub only
+    /// reports this where the base requires up-to-date branches.
+    public var isBehind: Bool { mergeStateStatus == "BEHIND" }
+
     /// GitHub's review decision says approved, or someone approved and nobody's changes-request still stands.
     public var isApproved: Bool { reviewDecision == "APPROVED" || (!approvedBy.isEmpty && changesRequestedBy.isEmpty) }
     public var ref: MyPrRef { MyPrRef(nodeId: nodeId, owner: owner, repo: repo, number: number, title: title, url: url) }
@@ -109,16 +115,19 @@ public struct MyPrsResult: Sendable {
     public let me: String
 }
 
-/// Who you are plus the choices and acknowledgements that decide which comments are new.
+/// Who you are plus the choices, acknowledgements and Done marks that decide which comments are new and what still
+/// needs you.
 public struct MyPrsContext: Equatable, Sendable {
     public let me: String
     public let settings: MyPrsSettings
     public let acknowledged: Set<String>
+    public let dismissals: Dismissals
 
-    public init(me: String, settings: MyPrsSettings, acknowledged: Set<String>) {
+    public init(me: String, settings: MyPrsSettings, acknowledged: Set<String>, dismissals: Dismissals = [:]) {
         self.me = me
         self.settings = settings
         self.acknowledged = acknowledged
+        self.dismissals = dismissals
     }
 }
 
@@ -140,17 +149,25 @@ func isCounted(author: String, isBot: Bool, _ context: MyPrsContext) -> Bool {
 }
 
 /// Comments still waiting on you: counted (see `isCounted`), not resolved on GitHub and not yet acknowledged, oldest
-/// first.
+/// first. None while the PR is marked done.
 public func newComments(_ pr: MyPr, _ context: MyPrsContext) -> [PrComment] {
-    pr.comments.filter {
+    guard !isDismissed(pr, context.dismissals) else { return [] }
+    return pr.comments.filter {
         !$0.isResolved && !context.acknowledged.contains($0.id) && isCounted(author: $0.author, isBot: $0.isBot, context)
     }
 }
 
-/// Why a PR needs you, in card order: changes requested on the current head, new comments, failing CI, a conflict.
+/// Reviewers whose changes-request on the current head still needs you: none while the PR is marked done, since Done
+/// says you have dealt with them until the PR next changes.
+public func standingChangesRequests(_ pr: MyPr, _ context: MyPrsContext) -> [String] {
+    isDismissed(pr, context.dismissals) ? [] : pr.changesRequestedOnHead
+}
+
+/// Why a PR needs you, in card order: changes requested on the current head, new comments, failing CI, a conflict. A
+/// Done mark clears the first two until the PR next changes; failing CI and a conflict still count.
 public func needsYouReasons(_ pr: MyPr, _ context: MyPrsContext) -> [String] {
     var reasons: [String] = []
-    let requesters = pr.changesRequestedOnHead
+    let requesters = standingChangesRequests(pr, context)
     if !requesters.isEmpty { reasons.append("Changes requested by \(requesters.joined(separator: ", "))") }
     let fresh = newComments(pr, context).count
     if fresh > 0 { reasons.append(fresh == 1 ? "1 new comment" : "\(fresh) new comments") }
@@ -164,23 +181,27 @@ public func myReasonOf(_ pr: MyPr, _ context: MyPrsContext) -> String? {
     return reasons.isEmpty ? nil : reasons.joined(separator: " · ")
 }
 
-/// Places a PR: anything that needs you wins, drafts included; then approved and mergeable; then waiting; then drafts.
+/// Places a PR: anything that needs you wins, drafts included; then drafts; then approved, even if behind its base;
+/// then behind its base; then waiting on reviewers.
 public func myBlockOf(_ pr: MyPr, _ context: MyPrsContext) -> MyBlock {
     if !needsYouReasons(pr, context).isEmpty { return .needsYou }
     if pr.isDraft { return .drafts }
-    return pr.isApproved ? .ready : .waiting
+    if pr.isApproved { return .ready }
+    return pr.isBehind ? .behind : .waiting
 }
 
-public func myBlockLists(_ prs: [MyPr], _ context: MyPrsContext, dismissals: Dismissals = [:]) -> [MyBlock: BlockList<MyPr>] {
+/// PRs grouped by block and sorted by each block's setting. Nothing is hidden: a Done mark moves a PR (see
+/// `needsYouReasons`) rather than setting it apart.
+public func myBlockLists(_ prs: [MyPr], _ context: MyPrsContext) -> [MyBlock: BlockList<MyPr>] {
     Dictionary(uniqueKeysWithValues: MyBlock.allCases.map { block in
-        (block, blockList(prs.filter { myBlockOf($0, context) == block }, sort: context.settings.sort(block), dismissals: dismissals))
+        (block, blockList(prs.filter { myBlockOf($0, context) == block }, sort: context.settings.sort(block), dismissals: [:]))
     })
 }
 
 /// The My PRs pill's colour, first match wins: urgent while anything needs you, ready while anything is approved,
-/// waiting while anything is with reviewers, idle otherwise (drafts alone stay idle).
-public func myMenuTone(needsYou: Int, ready: Int, waiting: Int) -> MenuTone {
+/// waiting while anything is with reviewers or behind its base, idle otherwise (drafts alone stay idle).
+public func myMenuTone(needsYou: Int, ready: Int, waiting: Int, behind: Int) -> MenuTone {
     if needsYou > 0 { return .urgent }
     if ready > 0 { return .ready }
-    return waiting > 0 ? .waiting : .idle
+    return waiting + behind > 0 ? .waiting : .idle
 }

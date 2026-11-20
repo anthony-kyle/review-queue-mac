@@ -67,6 +67,7 @@ func makeMyPr(
     headRefOid: String = "head",
     reviewDecision: String? = nil,
     mergeable: String? = "MERGEABLE",
+    mergeStateStatus: String? = nil,
     reviews: [PrReview] = [],
     comments: [PrComment] = [],
     unresolvedThreads: Int = 0,
@@ -90,6 +91,7 @@ func makeMyPr(
         headRefOid: headRefOid,
         reviewDecision: reviewDecision,
         mergeable: mergeable,
+        mergeStateStatus: mergeStateStatus,
         reviews: reviews,
         comments: comments,
         requestedReviewers: [],
@@ -116,9 +118,10 @@ func prReview(_ id: String, by author: String, _ state: String, oid: String = "h
 func myContext(
     me: String = "me",
     acknowledged: Set<String> = [],
+    dismissals: Dismissals = [:],
     _ change: (inout MyPrsSettings) -> Void = { _ in }
 ) -> MyPrsContext {
     var settings = MyPrsSettings()
     change(&settings)
-    return MyPrsContext(me: me, settings: settings, acknowledged: acknowledged)
+    return MyPrsContext(me: me, settings: settings, acknowledged: acknowledged, dismissals: dismissals)
 }

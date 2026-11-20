@@ -27,6 +27,7 @@ extension MyBlock {
         case .needsYou: BlockStyle(symbol: "bell.badge.fill", color: .red, cardTint: .red)
         case .ready: BlockStyle(symbol: "checkmark.seal.fill", color: .green, cardTint: .green)
         case .waiting: BlockStyle(symbol: "person.2", color: .secondary, cardTint: nil)
+        case .behind: BlockStyle(symbol: "arrow.triangle.branch", color: .orange, cardTint: nil)
         case .drafts: BlockStyle(symbol: "pencil.and.outline", color: .secondary, cardTint: nil)
         }
     }

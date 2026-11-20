@@ -19,7 +19,7 @@ struct CardView: View {
             signal: queueSignal(pr),
             isExpanded: model.rowExpansion.isExpanded(pr.key, in: block.rawValue, byDefault: block.areRowsExpandedByDefault),
             onToggle: { model.rowExpansion.toggle(pr.key, in: block.rawValue) },
-            onDone: { model.markDone(pr) }
+            done: DoneAction(help: "Hide until this PR next changes") { model.markDone(pr) }
         ) {
             CardField("Author") {
                 LinkText(pr.author, color: authorColor(settings)) { model.open("https://github.com/\(pr.author)") }
@@ -73,8 +73,15 @@ struct CardView: View {
 
 /// One PR in a block, shared by both menus. Collapsed it is a one-line toggle: title, the most urgent `signal`, a CI
 /// dot and age since the PR was opened, matching the blocks' sort. Expanded it is a glass card tinted by `tint`: a label grid of `details`, then
-/// GitHub Review, Linear Review, `accessory` and Done. `details` holds `CardField`s; any other view in it spans the
+/// GitHub Review, Linear Review, `accessory` and Done, which is left out when `done` is nil. `details` holds `CardField`s; any other view in it spans the
 /// grid's full width.
+/// A card's Done button: what it does and its tooltip, which differs between hiding a queue PR and clearing what one of
+/// your PRs needs from you.
+struct DoneAction {
+    let help: String
+    let action: () -> Void
+}
+
 struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
     private static var indent: CGFloat { 20 }
 
@@ -85,7 +92,7 @@ struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
     let signal: PrSignal?
     let isExpanded: Bool
     let onToggle: () -> Void
-    let onDone: () -> Void
+    let done: DoneAction?
     @ViewBuilder let details: () -> Details
     @ViewBuilder let accessory: () -> Accessory
     @State private var isHovered = false
@@ -162,9 +169,11 @@ struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
             }
             Spacer(minLength: 8)
             accessory()
-            Button(action: onDone) { Label("Done", systemImage: "checkmark") }
-                .buttonStyle(.ghost(.green))
-                .help("Hide until this PR next changes")
+            if let done {
+                Button(action: done.action) { Label("Done", systemImage: "checkmark") }
+                    .buttonStyle(.ghost(.green))
+                    .help(done.help)
+            }
         }
         .controlSize(.small)
     }
@@ -179,7 +188,7 @@ extension PrRow where Accessory == EmptyView {
         signal: PrSignal?,
         isExpanded: Bool,
         onToggle: @escaping () -> Void,
-        onDone: @escaping () -> Void,
+        done: DoneAction?,
         @ViewBuilder details: @escaping () -> Details
     ) {
         self.init(
@@ -190,7 +199,7 @@ extension PrRow where Accessory == EmptyView {
             signal: signal,
             isExpanded: isExpanded,
             onToggle: onToggle,
-            onDone: onDone,
+            done: done,
             details: details,
             accessory: { EmptyView() }
         )
