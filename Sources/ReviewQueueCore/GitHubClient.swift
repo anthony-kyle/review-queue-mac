@@ -83,7 +83,7 @@ public actor GitHubClient {
         """
     private static let myFragment = """
         fragment D on PullRequest {
-          headRefOid mergeable reviewDecision
+          headRefOid mergeable mergeStateStatus reviewDecision
           reviews(last: 50) { nodes { id author { login __typename } state commit { oid } } }
           reviewThreads(first: 100) { nodes { isResolved comments(first: 20) { nodes { \(commentFields) } } } }
           comments(last: 100) { totalCount nodes { \(commentFields) } }

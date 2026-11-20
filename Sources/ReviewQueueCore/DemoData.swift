@@ -16,8 +16,9 @@ public struct DemoData: Sendable {
 
     /// High priority holds a daily-group PR with others' approval and changes-request and one updated after your
     /// changes, which links the diff since your review and fails only a muted Vercel check; Needs review shows three PRs and hides two approved by others and one with changes requested by others.
-    /// My PRs has two that need you, two ready to merge, one with reviewers and a draft, plus one in an excluded repo; the
-/// bot's comment is from an ignored commenter, so CI alone puts its PR in Needs you.
+    /// My PRs has two that need you, one ready to merge (behind main, which an approval outranks), one with reviewers,
+    /// one behind main and a draft, plus one in an excluded repo; the bot's comment is from an ignored commenter, so CI
+    /// alone puts its PR in Needs you. One ready PR keeps the menu within its scroll height.
     public init(now: Date) {
         let at = DemoClock(now: now)
         var settings = QueueSettings()
@@ -112,19 +113,15 @@ public struct DemoData: Sendable {
             myPr(
                 316, "acme-tools", "feat(tools): lint commit messages in pre-push", story: 1055,
                 reviews: [PrReview(id: "r2", author: "jdoe", isBot: false, state: "APPROVED", commitOid: "head")],
-                decision: "APPROVED", created: at.days(2), updated: at.hours(8)
-            ),
-            myPr(
-                425, "acme-finance-lib", "perf(finance): memoise exchange rate lookups", story: 1056,
-                reviews: [
-                    PrReview(id: "r3", author: "alex-morgan", isBot: false, state: "APPROVED", commitOid: "head"),
-                    PrReview(id: "r4", author: "sam-rivera", isBot: false, state: "APPROVED", commitOid: "head"),
-                ],
-                decision: "APPROVED", created: at.days(3), updated: at.days(1)
+                decision: "APPROVED", isBehind: true, created: at.days(2), updated: at.hours(8)
             ),
             myPr(
                 824, "acme-web", "feat(web): add keyboard shortcuts to the invoice editor", story: 1057,
                 requested: ["alex-morgan", "sam-rivera"], created: at.hours(7), updated: at.hours(7)
+            ),
+            myPr(
+                819, "acme-web", "refactor(web): move invoice totals into a shared hook", story: 1060,
+                isBehind: true, requested: ["priya-n"], created: at.days(4), updated: at.days(2)
             ),
             myPr(
                 320, "acme-tools", "chore(tools): try the new bundler", story: 1058,
@@ -208,6 +205,7 @@ private func myPr(
     isDraft: Bool = false,
     reviews: [PrReview] = [],
     decision: String? = nil,
+    isBehind: Bool = false,
     comments: [PrComment] = [],
     requested: [String] = [],
     threads: (unresolved: Int, total: Int) = (0, 0),
@@ -231,6 +229,7 @@ private func myPr(
         headRefOid: "head",
         reviewDecision: decision,
         mergeable: "MERGEABLE",
+        mergeStateStatus: isBehind ? "BEHIND" : "CLEAN",
         reviews: reviews,
         comments: comments,
         requestedReviewers: requested,

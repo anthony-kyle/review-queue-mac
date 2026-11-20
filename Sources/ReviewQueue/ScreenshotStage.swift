@@ -70,10 +70,10 @@ enum ScreenshotStage {
             ])
         case .pillsMyPrs:
             window = pills([
-                ("Needs you", .myPrs(needsYou: 2, ready: 1, waiting: 3)),
-                ("Approved", .myPrs(needsYou: 0, ready: 1, waiting: 3)),
-                ("Waiting", .myPrs(needsYou: 0, ready: 0, waiting: 3)),
-                ("No reviews", .myPrs(needsYou: 0, ready: 0, waiting: 0)),
+                ("Needs you", .myPrs(needsYou: 2, ready: 1, waiting: 3, behind: 1)),
+                ("Approved", .myPrs(needsYou: 0, ready: 1, waiting: 3, behind: 1)),
+                ("Waiting", .myPrs(needsYou: 0, ready: 0, waiting: 3, behind: 1)),
+                ("No reviews", .myPrs(needsYou: 0, ready: 0, waiting: 0, behind: 0)),
             ])
         case .settingsReviewQueue, .settingsMyPrs, .settingsGeneral:
             model.settingsTab = shot.settingsTab ?? .reviewQueue

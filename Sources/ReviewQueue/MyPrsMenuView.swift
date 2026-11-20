@@ -2,7 +2,7 @@ import ReviewQueueCore
 import SwiftUI
 
 /// The My PRs menu bar window: header, error lines, then your open PRs in Needs you, Ready to merge, Waiting on
-/// reviewers and Drafts.
+/// reviewers, Behind main and Drafts.
 struct MyPrsMenuView: View {
     @Bindable var model: AppModel
 
@@ -29,7 +29,7 @@ struct MyPrsMenuView: View {
         let lists = model.myLists
         let now = Date()
         return VStack(alignment: .leading, spacing: 14) {
-            ForEach(MyBlock.allCases.filter { $0 == .needsYou || !(lists[$0]?.shown.isEmpty ?? true) || !(lists[$0]?.dismissed.isEmpty ?? true) }) { block in
+            ForEach(MyBlock.allCases.filter { $0 == .needsYou || !(lists[$0]?.shown.isEmpty ?? true) }) { block in
                 BlockSection(
                     title: block.label,
                     style: block.style,
@@ -41,7 +41,7 @@ struct MyPrsMenuView: View {
                     ),
                     limit: Binding(get: { model.myShownRows[block] ?? AppModel.pageRows }, set: { model.myShownRows[block] = $0 }),
                     hiddenNote: nil,
-                    onUndo: { model.restore($0) }
+                    onUndo: nil
                 ) { pr in
                     MyPrCardView(model: model, pr: pr, now: now)
                 }

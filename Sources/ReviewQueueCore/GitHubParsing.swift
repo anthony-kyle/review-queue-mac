@@ -144,6 +144,7 @@ struct DetailNode: Decodable, Sendable {
     var reviewRequests = Nodes<ReviewRequestNode>(nodes: [])
     var commits = Nodes<CommitNode>(nodes: [])
     var mergeable: String?
+    var mergeStateStatus: String?
     var reviewDecision: String?
 
     var rollup: StatusRollup? { commits.nodes.first?.commit.statusCheckRollup }
@@ -354,6 +355,7 @@ func myPr(_ candidate: Candidate, detail: DetailNode, me: String) -> MyPr {
         headRefOid: detail.headRefOid,
         reviewDecision: detail.reviewDecision,
         mergeable: detail.mergeable,
+        mergeStateStatus: detail.mergeStateStatus,
         reviews: detail.reviews.nodes.compactMap(PrReview.init).filter { $0.author != me },
         comments: comments.sorted { $0.createdAt < $1.createdAt },
         requestedReviewers: detail.reviewRequests.nodes.compactMap { $0.requestedReviewer?.login ?? $0.requestedReviewer?.slug },

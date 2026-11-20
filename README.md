@@ -74,22 +74,23 @@ Each menu bar item is a pill whose colour says what its list needs. The first ru
 </p>
 
 - **Review queue**: red with the High priority and Needs review counts while anything is High priority, amber with the Needs review count while anything needs review, green when neither has PRs.
-- **My PRs**: red with the Needs you count while anything needs you, green while anything is in Ready to merge, amber while anything is waiting on reviewers, and glass otherwise (no open PRs, or only drafts). The glass pill is a monochrome template that the menu bar tints like its own icons.
+- **My PRs**: red with the Needs you count while anything needs you, green while anything is in Ready to merge, amber while anything is waiting on reviewers or behind main, and glass otherwise (no open PRs, or only drafts). The glass pill is a monochrome template that the menu bar tints like its own icons.
 
 ## My PRs
 
-Your open PRs come from a GitHub search (`is:open is:pr author:<you> archived:false`, paged), then a details pass in the same batches as the queue: reviews, review threads and issue comments, requested reviewers, CI checks, mergeability and review decision. Story ids and Linear review links work as in the queue, resolved in the same pass and cache.
+Your open PRs come from a GitHub search (`is:open is:pr author:<you> archived:false`, paged), then a details pass in the same batches as the queue: reviews, review threads and issue comments, requested reviewers, CI checks, mergeability, merge state and review decision. Story ids and Linear review links work as in the queue, resolved in the same pass and cache.
 
 PRs in an excluded org or `owner/name` repo are dropped before blocks and notifications. Add exclusions from the orgs and repos in the current results, or type one in.
 
-A comment is **new** until you acknowledge it, unless it is yours, its author is on the ignored list, or it comes from a bot (`Bot` type, a `[bot]` login, or the known bot logins) while "Count bot comments" is off (it is on by default). Each card lists its new comments with **Open**, **No follow-up** (acknowledges that comment) and **Ignore <author>** (adds them to the ignored list; remove them in Settings). **Done** hides the PR until it next changes, like the queue, and acknowledges all its current comments. The first refresh after install acknowledges every existing comment, so only comments that arrive later count as new.
+A comment is **new** until you acknowledge it, unless it is yours, its author is on the ignored list, or it comes from a bot (`Bot` type, a `[bot]` login, or the known bot logins) while "Count bot comments" is off (it is on by default). Each card lists its new comments with **Open**, **No follow-up** (acknowledges that comment) and **Ignore <author>** (adds them to the ignored list; remove them in Settings). **Done**, shown only in Needs you, clears the PR's changes-requests and new comments until it next changes and acknowledges all its current comments. It is not hidden: with nothing else needing you it moves to the block it would otherwise be in, while failing CI or a conflict keeps it in Needs you. The first refresh after install acknowledges every existing comment, so only comments that arrive later count as new.
 
 Blocks, in order:
 
 1. **Needs you**: someone's latest decisive review is a changes-request on the current head (you haven't pushed since), there are new comments, CI is failing, or GitHub reports a conflict. Drafts land here too when any of these hold. The card's reason line says why, e.g. `Changes requested by alice · 2 new comments · CI failing · Conflict`.
 2. **Ready to merge**: GitHub's review decision is approved, or someone approved and nobody's changes-request still stands.
 3. **Waiting on reviewers**: every other non-draft PR.
-4. **Drafts**.
+4. **Behind main**: a PR that would be waiting on reviewers but whose branch GitHub reports as behind its base (`mergeStateStatus` `BEHIND`, only reported where branch protection requires up-to-date branches). Approved PRs that are behind stay in Ready to merge. Rows start collapsed.
+5. **Drafts**.
 
 Cards reuse the queue's card-detail toggles (waiting, approvals, changes-requests, comments, threads, CI, failing and neutral checks); the waiting line also lists requested reviewers. The menu bar pill takes its colour from these blocks; see [Menu bar pills](#menu-bar-pills).
 
@@ -112,7 +113,7 @@ Each rule has its own toggle in Settings → Review queue; the sound picker and 
 
 ### My PRs
 
-Evaluated after every refresh for PRs that aren't excluded or marked done (a marked-done PR's activity is recorded but stays silent):
+Evaluated after every refresh for PRs that aren't excluded. A PR marked done stays quiet about comments and reviews until it next changes, but still alerts on CI and conflicts:
 
 1. New comments: one alert per PR with the count and the first new comment's author and text, following the bot and ignore rules above. Clicking it opens that comment.
 2. A review approving the PR sends a normal alert; a review requesting changes sends a loud one, with the same self-played sound as High priority.

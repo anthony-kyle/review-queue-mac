@@ -116,9 +116,11 @@ final class AppModel {
     /// Your open PRs minus excluded orgs and repos, with ignored CI sources no longer counted as failing.
     var myPrs: [MyPr] { withoutExcluded(myAllPrs, settings.myPrs).map { $0.ignoringCi(settings.ignoredCiSources) } }
 
-    var myContext: MyPrsContext { MyPrsContext(me: me ?? "", settings: settings.myPrs, acknowledged: acknowledged) }
+    var myContext: MyPrsContext {
+        MyPrsContext(me: me ?? "", settings: settings.myPrs, acknowledged: acknowledged, dismissals: myDismissals)
+    }
 
-    var myLists: [MyBlock: BlockList<MyPr>] { myBlockLists(myPrs, myContext, dismissals: myDismissals) }
+    var myLists: [MyBlock: BlockList<MyPr>] { myBlockLists(myPrs, myContext) }
 
     /// Orgs and `owner/name` repos in the latest My PRs results, for the exclusion pickers.
     var mySeenOrgs: [String] { Set(myAllPrs.map(\.owner)).sorted() }
@@ -134,14 +136,11 @@ final class AppModel {
         saveDismissals(dismissals.filter { key, _ in !prs.contains { $0.key == key } })
     }
 
-    /// Hides one of your PRs until it next changes and acknowledges every comment it has now.
+    /// Clears one of your PRs' changes-requests and new comments until it next changes, so it drops out of Needs you
+    /// unless CI is failing or it conflicts, and acknowledges every comment it has now.
     func markDone(_ pr: MyPr) {
         saveMyDismissals(myDismissals.merging([pr.key: pr.updatedAt]) { $1 })
         acknowledge(pr.comments.map(\.id))
-    }
-
-    func restore(_ prs: [MyPr]) {
-        saveMyDismissals(myDismissals.filter { key, _ in !prs.contains { $0.key == key } })
     }
 
     func acknowledge(_ commentIds: [String]) {
@@ -393,7 +392,7 @@ final class AppModel {
     }
 
     private func announceMine(closures: [String: PrClosure]) {
-        let evaluation = evaluateMyAlerts(previous: myAlertState, prs: myPrs, closures: closures, context: myContext, dismissals: myDismissals)
+        let evaluation = evaluateMyAlerts(previous: myAlertState, prs: myPrs, closures: closures, context: myContext)
         myAlertState = evaluation.state
         store?.save(evaluation.state, to: JSONStore.myAlertState)
         post(evaluation.alerts)
