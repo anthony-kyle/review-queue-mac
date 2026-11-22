@@ -53,10 +53,10 @@ import Testing
         let passing = makeMyPr(1, ci: "SUCCESS")
         let failing = makeMyPr(1, ci: "FAILURE", failingChecks: [vercel])
         let context = myContext()
-        let baseline = evaluateMyAlerts(previous: nil, prs: [passing], closures: [:], context: context, dismissals: [:])
-        let ignored = evaluateMyAlerts(previous: baseline.state, prs: [failing.ignoringCi(["vercel"])], closures: [:], context: context, dismissals: [:])
+        let baseline = evaluateMyAlerts(previous: nil, prs: [passing], closures: [:], context: context)
+        let ignored = evaluateMyAlerts(previous: baseline.state, prs: [failing.ignoringCi(["vercel"])], closures: [:], context: context)
         #expect(ignored.alerts.isEmpty)
-        let shown = evaluateMyAlerts(previous: baseline.state, prs: [failing], closures: [:], context: context, dismissals: [:])
+        let shown = evaluateMyAlerts(previous: baseline.state, prs: [failing], closures: [:], context: context)
         #expect(shown.alerts.map(\.subtitle) == ["CI failing"])
     }
 

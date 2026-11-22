@@ -27,7 +27,7 @@ public func queueSignal(_ pr: QueuePr) -> PrSignal? {
 public func mySignal(_ pr: MyPr, _ context: MyPrsContext) -> PrSignal? {
     if pr.isConflicting { return PrSignal("Conflict", .error) }
     if isCiFailing(pr.ci) { return PrSignal("CI failing", .error) }
-    if !pr.changesRequestedOnHead.isEmpty { return PrSignal("Changes requested", .error) }
+    if !standingChangesRequests(pr, context).isEmpty { return PrSignal("Changes requested", .error) }
     let fresh = newComments(pr, context).count
     if fresh > 0 { return PrSignal("\(fresh) new", .warning) }
     if pr.unresolvedThreads > 0 { return PrSignal(counted(pr.unresolvedThreads, "thread"), .warning) }

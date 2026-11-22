@@ -45,7 +45,7 @@ struct QueueMenuBarLabel: View {
     }
 }
 
-/// The My PRs pill, from the Needs you, Ready to merge and Waiting counts.
+/// The My PRs pill, from the Needs you, Ready to merge, Waiting on reviewers and Behind main counts.
 struct MyPrsMenuBarLabel: View {
     let model: AppModel
 
@@ -54,7 +54,8 @@ struct MyPrsMenuBarLabel: View {
         MenuBarLabel.myPrs(
             needsYou: lists[.needsYou]?.shown.count ?? 0,
             ready: lists[.ready]?.shown.count ?? 0,
-            waiting: lists[.waiting]?.shown.count ?? 0
+            waiting: lists[.waiting]?.shown.count ?? 0,
+            behind: lists[.behind]?.shown.count ?? 0
         )
     }
 }
@@ -81,12 +82,12 @@ struct MenuBarLabel: View {
     }
 
     /// The My PRs pill: a person icon and the Needs you count, coloured by `myMenuTone`.
-    static func myPrs(needsYou: Int, ready: Int, waiting: Int) -> MenuBarLabel {
+    static func myPrs(needsYou: Int, ready: Int, waiting: Int, behind: Int) -> MenuBarLabel {
         MenuBarLabel(
             pill: MenuBarPill(
                 icon: needsYou > 0 ? "person.crop.circle.badge.exclamationmark" : "person.crop.circle",
                 text: needsYou > 0 ? "\(needsYou)" : nil,
-                tone: myMenuTone(needsYou: needsYou, ready: ready, waiting: waiting)
+                tone: myMenuTone(needsYou: needsYou, ready: ready, waiting: waiting, behind: behind)
             ),
             fallback: "Mine \(needsYou)"
         )

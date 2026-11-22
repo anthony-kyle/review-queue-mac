@@ -143,7 +143,7 @@ struct ScrollingBlocks<Content: View>: View {
 }
 
 /// One collapsible block with its hidden-count and marked-done lines and paged PR rows in a tight stack, grouped in one
-/// glass container so expanded cards share a sampling region.
+/// glass container so expanded cards share a sampling region. The marked-done line shows only with an `onUndo`.
 /// The title turns orange while a highlighted block has PRs.
 struct BlockSection<Pr: TrackedPr, Card: View>: View {
     let title: String
@@ -153,7 +153,7 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
     @Binding var isOpen: Bool
     @Binding var limit: Int
     let hiddenNote: String?
-    let onUndo: ([Pr]) -> Void
+    let onUndo: (([Pr]) -> Void)?
     @ViewBuilder let card: (Pr) -> Card
 
     var body: some View {
@@ -163,7 +163,7 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
                 if let hiddenNote {
                     Text(hiddenNote).foregroundStyle(.secondary).font(.caption)
                 }
-                if !list.dismissed.isEmpty {
+                if let onUndo, !list.dismissed.isEmpty {
                     HStack(spacing: 4) {
                         Text("\(list.dismissed.count) marked done").foregroundStyle(.secondary)
                         Button("Undo") { onUndo(list.dismissed) }.buttonStyle(.link)

@@ -36,14 +36,14 @@ public func vanishedPrs(previous: MyAlertState?, prs: [MyPr]) -> [MyPrRef] {
 /// Notifications owed after a My PRs refresh: new comments (one alert per PR), approvals, changes-requests (loud, sent as
 /// `.high`), CI newly failing on the head, a new conflict, and a PR merged or closed by someone else (`closures`, keyed
 /// by node id, says how each vanished PR ended). With no `previous` (fresh install) nothing is sent and the state is
-/// just recorded. Marked-done PRs feed the state but stay silent until they change. More than three normal alerts
+/// just recorded. A PR marked done (`context.dismissals`) stays quiet about comments and reviews until it changes but
+/// still alerts on CI and conflicts, matching the reasons that keep it in Needs you. More than three normal alerts
 /// collapse into one summary.
 public func evaluateMyAlerts(
     previous: MyAlertState?,
     prs: [MyPr],
     closures: [String: PrClosure],
-    context: MyPrsContext,
-    dismissals: Dismissals = [:]
+    context: MyPrsContext
 ) -> MyAlertEvaluation {
     let state = MyAlertState(
         comments: Set(prs.flatMap { $0.comments.map(\.id) }),
@@ -57,7 +57,7 @@ public func evaluateMyAlerts(
     let settings = context.settings
     var loud: [PrAlert] = []
     var normal: [PrAlert] = []
-    for pr in prs where !isDismissed(pr, dismissals) {
+    for pr in prs {
         let fresh = newComments(pr, context).filter { !previous.comments.contains($0.id) }
         if settings.notifyComments, let first = fresh.first {
             normal.append(alert(
@@ -68,7 +68,7 @@ public func evaluateMyAlerts(
                 url: first.url.isEmpty ? pr.url : first.url
             ))
         }
-        let reviews = pr.reviews.filter {
+        let reviews = isDismissed(pr, context.dismissals) ? [] : pr.reviews.filter {
             !$0.id.isEmpty && !previous.reviews.contains($0.id) && isCounted(author: $0.author, isBot: $0.isBot, context)
         }
         for review in reviews {

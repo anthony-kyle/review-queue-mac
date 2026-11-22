@@ -94,7 +94,7 @@ import Testing
         #expect(withoutExcluded(prs, settings).map(\.number) == [1, 3])
     }
 
-    @Test func blocksSortPerBlockAndSetDonePrsApart() {
+    @Test func blocksSortPerBlockAndHideNothing() {
         let prs = [
             makeMyPr(1, createdAt: "2026-10-02T00:00:00Z"),
             makeMyPr(2, createdAt: "2026-10-01T00:00:00Z"),
@@ -104,19 +104,66 @@ import Testing
         let newest = myContext { $0.blockSorts[.waiting] = .newest }
         #expect(myBlockLists(prs, newest)[.waiting]?.shown.map(\.number) == [3, 1, 2])
 
-        let lists = myBlockLists(prs, context, dismissals: [prs[0].key: prs[0].updatedAt])
-        #expect(lists[.waiting]?.shown.map(\.number) == [2, 3])
-        #expect(lists[.waiting]?.dismissed.map(\.number) == [1])
+        let lists = myBlockLists(prs, myContext(dismissals: [prs[0].key: prs[0].updatedAt]))
+        #expect(lists[.waiting]?.shown.map(\.number) == [2, 1, 3])
+        #expect(lists[.waiting]?.dismissed.isEmpty == true)
         #expect(Set(lists.keys) == Set(MyBlock.allCases))
     }
 
+    @Test func doneClearsChangesRequestedAndNewCommentsSoThePrMovesOn() {
+        let changes = [prReview("r1", by: "alice", "CHANGES_REQUESTED")]
+        let waiting = makeMyPr(1, reviews: changes, comments: [prComment("c1")])
+        let done = myContext(dismissals: [waiting.key: waiting.updatedAt])
+        #expect(myBlockOf(waiting, context) == .needsYou)
+        #expect(myBlockOf(waiting, done) == .waiting)
+        #expect(myReasonOf(waiting, done) == nil)
+        #expect(mySignal(waiting, done) == nil)
+        #expect(newComments(waiting, done).isEmpty)
+
+        let approved = makeMyPr(2, reviewDecision: "APPROVED", comments: [prComment("c2")])
+        #expect(myBlockOf(approved, myContext(dismissals: [approved.key: approved.updatedAt])) == .ready)
+    }
+
+    @Test func doneLeavesFailingCiAndConflictsInNeedsYou() {
+        let changes = [prReview("r1", by: "alice", "CHANGES_REQUESTED")]
+        let failing = makeMyPr(1, reviews: changes, ci: "FAILURE")
+        let conflicting = makeMyPr(2, mergeable: "CONFLICTING", comments: [prComment("c1")])
+        let done = myContext(dismissals: [failing.key: failing.updatedAt, conflicting.key: conflicting.updatedAt])
+        #expect(myBlockOf(failing, done) == .needsYou)
+        #expect(myReasonOf(failing, done) == "CI failing")
+        #expect(myBlockOf(conflicting, done) == .needsYou)
+        #expect(myReasonOf(conflicting, done) == "Conflict")
+    }
+
+    @Test func doneLapsesOnceThePrChanges() {
+        let marked = makeMyPr(1, comments: [prComment("c1")], updatedAt: "2026-10-02T00:00:00Z")
+        let done = myContext(dismissals: [marked.key: marked.updatedAt])
+        #expect(myBlockOf(marked, done) == .waiting)
+        let changed = makeMyPr(1, comments: [prComment("c1")], updatedAt: "2026-10-03T00:00:00Z")
+        #expect(myBlockOf(changed, done) == .needsYou)
+        #expect(myReasonOf(changed, done) == "1 new comment")
+    }
+
+    @Test func behindMainTakesOnlyPrsThatWouldOtherwiseWait() {
+        #expect(makeMyPr(1, mergeStateStatus: "BEHIND").isBehind)
+        #expect(!makeMyPr(1, mergeStateStatus: "CLEAN").isBehind)
+        #expect(myBlockOf(makeMyPr(1, mergeStateStatus: "BEHIND"), context) == .behind)
+        #expect(myBlockOf(makeMyPr(1, reviewDecision: "APPROVED", mergeStateStatus: "BEHIND"), context) == .ready)
+        #expect(myBlockOf(makeMyPr(1, mergeStateStatus: "BEHIND", ci: "FAILURE"), context) == .needsYou)
+        #expect(myBlockOf(makeMyPr(1, isDraft: true, mergeStateStatus: "BEHIND"), context) == .drafts)
+        #expect(MyBlock.behind.isOpenByDefault)
+        #expect(!MyBlock.behind.areRowsExpandedByDefault)
+        #expect(MyBlock.allCases == [.needsYou, .ready, .waiting, .behind, .drafts])
+    }
+
     @Test func pillToneFollowsWhatNeedsYou() {
-        #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 0) == .idle)
-        #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 3) == .waiting)
-        #expect(myMenuTone(needsYou: 0, ready: 1, waiting: 0) == .ready)
-        #expect(myMenuTone(needsYou: 0, ready: 1, waiting: 3) == .ready)
-        #expect(myMenuTone(needsYou: 2, ready: 0, waiting: 0) == .urgent)
-        #expect(myMenuTone(needsYou: 2, ready: 1, waiting: 3) == .urgent)
+        #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 0, behind: 0) == .idle)
+        #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 3, behind: 0) == .waiting)
+        #expect(myMenuTone(needsYou: 0, ready: 0, waiting: 0, behind: 2) == .waiting)
+        #expect(myMenuTone(needsYou: 0, ready: 1, waiting: 0, behind: 0) == .ready)
+        #expect(myMenuTone(needsYou: 0, ready: 1, waiting: 3, behind: 2) == .ready)
+        #expect(myMenuTone(needsYou: 2, ready: 0, waiting: 0, behind: 0) == .urgent)
+        #expect(myMenuTone(needsYou: 2, ready: 1, waiting: 3, behind: 2) == .urgent)
     }
 
     @Test func settingsDecodeFillsMyPrsDefaults() throws {
@@ -128,8 +175,12 @@ import Testing
         #expect(!partial.notifyComments && partial.notifyApproved)
         var roundTrip = MyPrsSettings()
         roundTrip.blockSorts[.ready] = .newest
+        roundTrip.blockSorts[.behind] = .newest
         roundTrip.excludedRepos = ["a/b"]
         #expect(try JSONDecoder().decode(MyPrsSettings.self, from: JSONEncoder().encode(roundTrip)) == roundTrip)
+        let saved = try JSONDecoder().decode(MyPrsSettings.self, from: Data(#"{"blockSorts":{"waiting":"newest"}}"#.utf8))
+        #expect(saved.sort(.waiting) == .newest)
+        #expect(saved.sort(.behind) == .oldest)
     }
 
     @Test func snippetsSqueezeAndCutBodies() {
@@ -144,7 +195,7 @@ import Testing
     private let searchNode = #"{"id":"PR_kw1","number":7,"title":"ENG-7 thing","url":"https://github.com/acme/app/pull/7","isDraft":false,"headRefName":"eng-7-thing","createdAt":"2026-10-01T00:00:00Z","updatedAt":"2026-10-02T00:00:00Z","author":{"login":"me","__typename":"User"},"repository":{"name":"app","owner":{"login":"acme"}}}"#
 
     private let detailJSON = #"""
-        {"headRefOid":"abc","mergeable":"CONFLICTING","reviewDecision":"CHANGES_REQUESTED",
+        {"headRefOid":"abc","mergeable":"CONFLICTING","mergeStateStatus":"BEHIND","reviewDecision":"CHANGES_REQUESTED",
          "reviews":{"nodes":[
            {"id":"R1","author":{"login":"alice","__typename":"User"},"state":"CHANGES_REQUESTED","commit":{"oid":"abc"}},
            {"id":"R2","author":{"login":"me","__typename":"User"},"state":"COMMENTED","commit":{"oid":"abc"}}]},
@@ -169,6 +220,8 @@ import Testing
         #expect(pr.nodeId == "PR_kw1")
         #expect(pr.storyId == "ENG-7")
         #expect(pr.isConflicting)
+        #expect(pr.mergeStateStatus == "BEHIND")
+        #expect(pr.isBehind)
         #expect(pr.reviews.map(\.id) == ["R1"])
         #expect(pr.changesRequestedOnHead == ["alice"])
         #expect(pr.comments.map(\.id) == ["C1", "C3", "T1", "T2"])
