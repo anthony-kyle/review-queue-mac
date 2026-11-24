@@ -163,10 +163,11 @@ private let demoReviewers = [
 
 /// A year of made-up review history for the statistics window: a few PRs each weekday (rarely one at a weekend) in the
 /// demo repos, asked of the web team as a whole or of teammates by name, picked up at each one's own rate and speed,
-/// mostly approving, sometimes requesting changes and approving the next day. Some named requests go unanswered, a few
-/// PRs sit three days or more before anyone looks, PRs merge a while after their last review, and PRs nobody
-/// reviews are closed within a week. A fixed seed keeps it
-/// the same on every run; times are offsets from `now`, and anything that would land after `now` is left out.
+/// mostly approving, sometimes requesting changes and approving the next day. Some named requests go unanswered, some
+/// PRs sit three days or more before anyone looks, PRs merge a while after their last review, and PRs nobody reviews are
+/// closed after a while. PRs from more than six months ago sit and linger longest, so the backlog of PRs waiting for
+/// review shrinks towards now. A fixed seed keeps it the same on every run; times are offsets from `now`, and anything
+/// that would land after `now` is left out.
 private func demoReviewHistory(now: Date) -> ReviewHistory {
     var random = SplitMix(seed: 2026)
     var numbers: [String: Int] = [:]
@@ -185,7 +186,8 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
             let created = day.addingTimeInterval((9 + random.unit() * 8) * hour)
             let ready = random.chance(0.2) ? created.addingTimeInterval((1 + random.unit() * 20) * hour) : nil
             let isTeamRequest = random.chance(0.3)
-            let sitsFor = random.chance(0.08) ? (72 + random.unit() * 48) * hour : 0
+            let age = min(1, Double(daysAgo) / 180)
+            let sitsFor = random.chance(0.04 + 0.2 * age) ? (72 + random.unit() * 48) * hour : 0
             var requests = isTeamRequest ? [HistoryRequest(team: team, at: max(ready ?? created, created))] : []
             var reviews: [HistoryReview] = []
             for reviewer in demoReviewers where reviewer.login != author && random.chance(reviewer.pickUp) {
@@ -204,7 +206,7 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
             guard created <= now else { continue }
             let lastReview = reviews.map(\.submittedAt).max()
             let merged = lastReview.map { $0.addingTimeInterval((2 + random.unit() * 18) * hour) }.flatMap { $0 <= now ? $0 : nil }
-            let abandoned = lastReview == nil ? created.addingTimeInterval((2 + random.unit() * 5) * 24 * hour) : nil
+            let abandoned = lastReview == nil ? created.addingTimeInterval((2 + random.unit() * 5) * (1 + 4 * age) * 24 * hour) : nil
             let closed = merged ?? abandoned.flatMap { $0 <= now ? $0 : nil }
             prs.append(HistoryPr(
                 repo: "\(DemoData.owner)/\(repo)",

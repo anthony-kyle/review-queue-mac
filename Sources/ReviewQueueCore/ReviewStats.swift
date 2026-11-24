@@ -194,6 +194,17 @@ func responseSamples(_ pr: HistoryPr, teams: [String: [String]], now: Date) -> [
     return (answered + waiting.values).sorted { ($0.reviewer, $0.at) < ($1.reviewer, $1.at) }
 }
 
+/// How many PRs were waiting for a first review at `moment`: open (created by then and not yet merged or closed), ready
+/// for review by then, and with no review counted yet from anyone but the author or bots.
+public func waitingForReview(_ prs: [HistoryPr], at moment: Date) -> Int {
+    prs.count { pr in
+        pr.createdAt <= moment
+            && pr.endedAt.map { $0 > moment } ?? true
+            && pr.readyTime <= moment
+            && !countedReviews(pr).contains { $0.submittedAt <= moment }
+    }
+}
+
 /// The reviewer who first reviewed a PR that had waited at least `unblockedWait` since it was ready, and when.
 func unblocker(_ pr: HistoryPr) -> HistoryReview? {
     guard let first = countedReviews(pr).min(by: { $0.submittedAt < $1.submittedAt }),
@@ -413,15 +424,18 @@ public func periodSpan(_ period: StatsPeriod, offset: Int, cycles: [LinearCycle]
 }
 
 /// Every cohort member's stats for one span, where the cohort is the teams' human members plus you, with your row and
-/// your standing against the team. The cards, the leaderboard and each trend point all read from this.
+/// your standing against the team, and the team's review backlog when the span ended (or now, while it runs). The
+/// cards, the leaderboard and each trend point all read from this.
 public struct PeriodStats: Equatable, Sendable {
     public let span: PeriodSpan
     public let me: String?
     public let rows: [ReviewerStats]
+    public let waiting: Int
 
     public init(history: ReviewHistory, span: PeriodSpan, now: Date, calendar: Calendar) {
         self.span = span
         me = history.me
+        waiting = waitingForReview(history.prs, at: min(span.interval.end, now))
         let cohort = unique(history.members + (history.me.map { [$0] } ?? [])).filter { !$0.hasSuffix("[bot]") }
         rows = reviewerStats(history.prs, in: span.interval, reviewers: cohort, teams: history.teamMembers, now: now, calendar: calendar)
     }

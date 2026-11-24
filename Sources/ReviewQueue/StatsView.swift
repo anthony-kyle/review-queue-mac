@@ -53,7 +53,7 @@ struct StatsContent: View {
             me: model.history.me,
             allowedBots: model.settings.allowedBotAuthors
         )
-        VStack(alignment: .leading, spacing: 22) {
+        VStack(alignment: .leading, spacing: 18) {
             header
             if model.settings.teams.isEmpty {
                 Text("Choose the GitHub teams whose PRs you review in Settings to see review statistics.").foregroundStyle(.secondary)
@@ -203,7 +203,7 @@ private struct TrendCache {
 }
 
 /// One period's metric for the trend chart: your value (nil leaves a gap) and the team median, both in the chart's
-/// units, which are hours for response time.
+/// units, which are hours for response time, and the team's backlog of PRs waiting for review when it ended.
 private struct TrendPoint: Identifiable {
     let id: Int
     let stats: PeriodStats
@@ -211,13 +211,19 @@ private struct TrendPoint: Identifiable {
     let median: Double?
     let run: Int
     let isPartial: Bool
+
+    var waiting: Int { stats.waiting }
 }
 
 /// The chosen metric over the trend's periods: you as a solid line with points, broken where you have no value, and
-/// the team median dashed. The last point is the selected period, drawn larger; a period still running is hollow and
-/// reads "so far". Hovering shows the period, your value and the median. Fixed height, so it never sizes the window.
+/// the team median dashed, on the left axis. The team's PRs waiting for review at each period's end are a thin orange
+/// line on the right axis: Swift Charts has one y scale, so the counts are scaled to fill the metric's range and the
+/// right axis labels them back in PRs. The last point is the selected period, drawn larger; a period still running is
+/// hollow and reads "so far". Hovering shows the period, your value, the median and the backlog. Fixed height, so it
+/// never sizes the window.
 private struct TrendView: View {
     private static let you = Color.green
+    private static let backlog = Color.orange
     private static let hour: Double = 3600
 
     let points: [PeriodStats]
@@ -230,10 +236,11 @@ private struct TrendView: View {
     var body: some View {
         let data = trendPoints
         VStack(alignment: .leading, spacing: 10) {
-            chart(data).frame(height: 220)
+            chart(data).frame(height: 200)
             HStack(spacing: 16) {
-                legendItem("You", dash: [])
-                legendItem("Team median", dash: [5, 4])
+                legendItem("You", color: Self.you, width: 2.5)
+                legendItem("Team median", color: .secondary, width: 1.5, dash: [5, 4])
+                legendItem("Open PRs waiting for review (right axis)", color: Self.backlog, width: 1.5)
                 Spacer()
             }
             .font(.caption)
@@ -262,8 +269,28 @@ private struct TrendView: View {
         metric == .response ? value / Self.hour : value
     }
 
+    /// The factor that stretches backlog counts over the metric's range, so both lines use the chart's height.
+    private func backlogScale(_ data: [TrendPoint]) -> Double {
+        let metricMax = data.flatMap { [$0.mine, $0.median] }.compactMap(\.self).max() ?? 0
+        let waitingMax = data.map(\.waiting).max() ?? 0
+        return max(metricMax, 1) / Double(max(waitingMax, 1))
+    }
+
+    /// Whole-PR ticks for the right axis: about four steps from zero to the largest backlog.
+    private func backlogTicks(_ data: [TrendPoint]) -> [Int] {
+        let waitingMax = max(data.map(\.waiting).max() ?? 0, 1)
+        let step = max(1, Int((Double(waitingMax) / 4).rounded(.up)))
+        return Array(stride(from: 0, through: waitingMax, by: step))
+    }
+
     private func chart(_ data: [TrendPoint]) -> some View {
-        Chart {
+        let scale = backlogScale(data)
+        return Chart {
+            ForEach(data) { point in
+                LineMark(x: .value("Period", point.id), y: .value("Value", Double(point.waiting) * scale), series: .value("Series", "waiting"))
+                    .foregroundStyle(Self.backlog)
+                    .lineStyle(StrokeStyle(lineWidth: 1.5))
+            }
             ForEach(data) { point in
                 if let median = point.median {
                     LineMark(x: .value("Period", point.id), y: .value("Value", median), series: .value("Series", "median"))
@@ -308,11 +335,18 @@ private struct TrendView: View {
         }
         .chartYScale(domain: .automatic(includesZero: true))
         .chartYAxis {
-            AxisMarks { value in
+            AxisMarks(position: .leading) { value in
                 AxisGridLine()
                 AxisValueLabel {
                     if let number = value.as(Double.self) {
                         Text(metric == .response ? compactDuration(number * Self.hour) : metric.format(number))
+                    }
+                }
+            }
+            AxisMarks(position: .trailing, values: backlogTicks(data).map { Double($0) * scale }) { value in
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text("\(Int((number / scale).rounded()))").foregroundStyle(Self.backlog)
                     }
                 }
             }
@@ -326,19 +360,20 @@ private struct TrendView: View {
             Text(periodTitle(point.stats.span, period: period, calendar: calendar)).font(.caption.weight(.semibold))
             Text("You: \(metric.format(unplot(point.mine)))\(point.isPartial ? " so far" : "")")
             Text("Team median: \(metric.format(unplot(point.median)))")
+            Text("Waiting for review: \(point.waiting)\(point.isPartial ? " now" : "")")
         }
         .font(.caption)
         .padding(8)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private func legendItem(_ name: String, dash: [CGFloat]) -> some View {
+    private func legendItem(_ name: String, color: Color, width: CGFloat, dash: [CGFloat] = []) -> some View {
         HStack(spacing: 6) {
             Path { path in
                 path.move(to: CGPoint(x: 0, y: 4))
                 path.addLine(to: CGPoint(x: 22, y: 4))
             }
-            .stroke(dash.isEmpty ? Self.you : Color.secondary, style: StrokeStyle(lineWidth: dash.isEmpty ? 2.5 : 1.5, dash: dash))
+            .stroke(color, style: StrokeStyle(lineWidth: width, dash: dash))
             .frame(width: 22, height: 8)
             Text(name)
         }
@@ -364,16 +399,20 @@ private struct IconButton: View {
 }
 
 /// Your reviews over the selected period: the period's total and the hovered day's count, the days as a calendar of
-/// large numbered cells (Sprint, Week, Month) or a heatmap of small cells with month labels (Quarter, Year), and the
-/// Less/More legend. Future days are outlined and empty; days outside the period are blank. Cell sizes come from the
-/// window's minimum content width, never from a measurement, so the graph can't feed back into the window's size.
+/// compact cells with the date top-left and the count bottom-right (Sprint, Week, Month) or a heatmap of small cells
+/// with month labels (Quarter, Year), and the Less/More legend. The days sit in a block as tall as a six-week month,
+/// so switching period never moves what is below. Future days are dim outlines; days outside the period are blank.
+/// Sizes come from the window's minimum content width, never from a measurement, so the graph can't feed back into the
+/// window's size.
 private struct PeriodGraphView: View {
     private static let gap: CGFloat = 3
     private static let width = StatsContent.width - 48
     private static let rowLabelWidth: CGFloat = 30
     private static let dayWidth: CGFloat = 112
-    private static let dayHeight: CGFloat = 58
-    private static let heatmapCell: CGFloat = 18
+    private static let dayHeight: CGFloat = 34
+    private static let headerHeight: CGFloat = 16
+    private static let blockHeight = headerHeight + gap + 6 * dayHeight + 5 * gap
+    private static let heatmapCell: CGFloat = 26
     private static let swatch: CGFloat = 12
     private static let monthRow: CGFloat = 14
 
@@ -383,7 +422,7 @@ private struct PeriodGraphView: View {
     @State private var hovered: GraphDay?
     @Environment(\.colorScheme) private var colorScheme
 
-    private var isDark: Bool { colorScheme == .dark }
+    private var palette: DayPalette { DayPalette(isDark: colorScheme == .dark) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -397,10 +436,13 @@ private struct PeriodGraphView: View {
                         .monospacedDigit()
                 }
             }
-            switch graph.style {
-            case .calendar: calendarGrid
-            case .heatmap: heatmap
+            Group {
+                switch graph.style {
+                case .calendar: calendarGrid
+                case .heatmap: heatmap
+                }
             }
+            .frame(height: Self.blockHeight, alignment: .top)
             legend
         }
     }
@@ -412,8 +454,8 @@ private struct PeriodGraphView: View {
                     Text(graph.weekdays[index])
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: Self.dayWidth, alignment: .leading)
-                        .padding(.leading, 6)
+                        .frame(maxWidth: Self.dayWidth)
+                        .frame(height: Self.headerHeight)
                 }
             }
             ForEach(graph.weeks.indices, id: \.self) { week in
@@ -428,17 +470,23 @@ private struct PeriodGraphView: View {
 
     @ViewBuilder private func calendarDay(_ day: GraphDay?) -> some View {
         if let day {
-            VStack(alignment: .leading) {
-                Text("\(calendar.component(.day, from: day.date))").font(.caption).foregroundStyle(.secondary)
-                Spacer(minLength: 0)
+            ZStack {
+                Text("\(calendar.component(.day, from: day.date))")
+                    .font(.caption2)
+                    .foregroundStyle(day.isFuture ? .tertiary : .secondary)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 if day.count > 0 {
-                    Text("\(day.count)").font(.title3.weight(.semibold)).monospacedDigit()
+                    Text("\(day.count)")
+                        .font(.callout.weight(.bold))
+                        .monospacedDigit()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 }
             }
-            .padding(6)
-            .frame(maxWidth: Self.dayWidth, maxHeight: .infinity, alignment: .topLeading)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .frame(maxWidth: Self.dayWidth)
             .frame(height: Self.dayHeight)
-            .background(dayShape(day))
+            .background(DayCell(level: day.level, isFuture: day.isFuture, palette: palette, cornerRadius: 6))
             .contentShape(Rectangle())
             .onHover { isInside in hovered = isInside && !day.isFuture ? day : nil }
         } else {
@@ -446,19 +494,12 @@ private struct PeriodGraphView: View {
         }
     }
 
-    @ViewBuilder private func dayShape(_ day: GraphDay) -> some View {
-        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
-        if day.isFuture {
-            shape.strokeBorder(.secondary.opacity(0.5), lineWidth: 1)
-        } else {
-            shape.fill(Color.heatmap(day.level, isDark: isDark))
-        }
-    }
-
+    /// The largest cell, up to the cap, that lets every week column fit the width and all seven rows fit the block.
     private var heatmapCellSize: CGFloat {
         let columns = CGFloat(max(graph.weeks.count, 1))
-        let fit = ((Self.width - Self.rowLabelWidth - 6) / columns).rounded(.down) - Self.gap
-        return min(Self.heatmapCell, max(fit, 6))
+        let byWidth = ((Self.width - Self.rowLabelWidth - 6) / columns).rounded(.down) - Self.gap
+        let byHeight = ((Self.blockHeight - Self.monthRow - 4) / 7).rounded(.down) - Self.gap
+        return min(Self.heatmapCell, max(min(byWidth, byHeight), 6))
     }
 
     private var heatmap: some View {
@@ -488,20 +529,21 @@ private struct PeriodGraphView: View {
         }
     }
 
-    /// Every day drawn in one Canvas rather than a view per day; hovering reads the day under the pointer from its
-    /// position.
+    /// Every day drawn in one Canvas rather than a view per day, bordered when cells are big enough to show it; hovering
+    /// reads the day under the pointer from its position.
     private func heatmapCanvas(cell: CGFloat, step: CGFloat) -> some View {
         let weeks = graph.weeks
-        let isDark = isDark
+        let palette = palette
+        let radius = min(4, cell / 4)
         return Canvas { context, _ in
             for (column, days) in weeks.enumerated() {
                 for (row, day) in days.enumerated() {
                     guard let day else { continue }
                     let rect = CGRect(x: CGFloat(column) * step, y: CGFloat(row) * step, width: cell, height: cell)
-                    if day.isFuture {
-                        context.stroke(Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 2.5, style: .continuous), with: .color(.secondary.opacity(0.5)), lineWidth: 1)
-                    } else {
-                        context.fill(Path(roundedRect: rect, cornerRadius: 2.5, style: .continuous), with: .color(.heatmap(day.level, isDark: isDark)))
+                    context.fill(Path(roundedRect: rect, cornerRadius: radius, style: .continuous), with: .color(palette.fill(day.level, isFuture: day.isFuture)))
+                    if cell >= 8 || day.isFuture {
+                        let border = Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: radius, style: .continuous)
+                        context.stroke(border, with: .color(palette.border(day.level, isFuture: day.isFuture)), lineWidth: 1)
                     }
                 }
             }
@@ -518,18 +560,53 @@ private struct PeriodGraphView: View {
     }
 
     private var legend: some View {
-        HStack(spacing: Self.gap) {
+        HStack(spacing: 3) {
             Spacer()
             Text("Less").padding(.trailing, 3)
             ForEach(0..<5, id: \.self) { level in
-                RoundedRectangle(cornerRadius: 2.5, style: .continuous)
-                    .fill(Color.heatmap(level, isDark: isDark))
+                DayCell(level: level, isFuture: false, palette: palette, cornerRadius: 3)
                     .frame(width: Self.swatch, height: Self.swatch)
             }
             Text("More").padding(.leading, 3)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
+    }
+}
+
+/// The graph's ghost-style day colours: a dark green border at full strength over a fill whose opacity grows with the
+/// level, a faint neutral cell for no reviews, and only a dim outline for a day still to come. The same colours draw
+/// calendar cells, heatmap cells and the legend, in light and dark.
+private struct DayPalette {
+    let isDark: Bool
+
+    private var green: Color {
+        isDark ? Color(.sRGB, red: 0.18, green: 0.62, blue: 0.30) : Color(.sRGB, red: 0.10, green: 0.50, blue: 0.22)
+    }
+
+    func fill(_ level: Int, isFuture: Bool) -> Color {
+        if isFuture { return .clear }
+        guard level > 0 else { return Color.primary.opacity(0.05) }
+        return green.opacity([0.12, 0.22, 0.33, 0.45][min(level, 4) - 1])
+    }
+
+    func border(_ level: Int, isFuture: Bool) -> Color {
+        if isFuture { return Color.secondary.opacity(0.3) }
+        return level > 0 ? green : Color.primary.opacity(0.12)
+    }
+}
+
+/// One day cell's background in `palette`: its fill and a one-point border.
+private struct DayCell: View {
+    let level: Int
+    let isFuture: Bool
+    let palette: DayPalette
+    let cornerRadius: CGFloat
+
+    var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        shape.fill(palette.fill(level, isFuture: isFuture))
+            .overlay(shape.strokeBorder(palette.border(level, isFuture: isFuture), lineWidth: 1))
     }
 }
 
@@ -617,20 +694,5 @@ private struct LeaderboardView: View {
                 )
             }
         }
-    }
-}
-
-extension Color {
-    /// GitHub's contribution greens for heatmap levels 0 to 4, with level 0 a neutral grey, in the light or dark set.
-    static func heatmap(_ level: Int, isDark: Bool) -> Color {
-        let light: [UInt32] = [0xEBEDF0, 0x9BE9A8, 0x40C463, 0x30A14E, 0x216E39]
-        let dark: [UInt32] = [0x2D333B, 0x0E4429, 0x006D32, 0x26A641, 0x39D353]
-        let rgb = (isDark ? dark : light)[min(max(level, 0), 4)]
-        return Color(
-            .sRGB,
-            red: Double((rgb >> 16) & 0xFF) / 255,
-            green: Double((rgb >> 8) & 0xFF) / 255,
-            blue: Double(rgb & 0xFF) / 255
-        )
     }
 }
