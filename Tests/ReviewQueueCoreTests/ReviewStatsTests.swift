@@ -69,50 +69,6 @@ import Testing
         #expect(stats.allSatisfy { $0.responseTimes.isEmpty })
     }
 
-    @Test func responseStartsAtTheLaterOfReadyAndYourRequest() {
-        let created = at("2026-11-02T09:00:00Z")
-        let first = at("2026-11-02T15:00:00Z")
-        let base = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first)
-        #expect(answeredWait(base, by: "me", at: first) == 6 * hour)
-        let requested = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, requests: [
-            HistoryRequest(reviewer: "me", at: at("2026-11-02T13:00:00Z")),
-            HistoryRequest(reviewer: "me", at: at("2026-11-02T14:00:00Z")),
-            HistoryRequest(reviewer: "other", at: at("2026-11-02T14:30:00Z")),
-        ])
-        #expect(answeredWait(requested, by: "me", at: first) == 2 * hour)
-        let readyLater = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, readyAt: at("2026-11-02T14:00:00Z"), requests: [
-            HistoryRequest(reviewer: "me", at: at("2026-11-02T10:00:00Z")),
-        ])
-        #expect(answeredWait(readyLater, by: "me", at: first) == hour)
-    }
-
-    @Test func responseFallsBackToReadyWhenRequestedAfterReviewingAndNeverGoesNegative() {
-        let created = at("2026-11-02T09:00:00Z")
-        let first = at("2026-11-02T12:00:00Z")
-        let lateRequest = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, requests: [
-            HistoryRequest(reviewer: "me", at: at("2026-11-02T13:00:00Z")),
-        ])
-        #expect(answeredWait(lateRequest, by: "me", at: first) == 3 * hour)
-        let readiedAfter = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, readyAt: at("2026-11-02T13:00:00Z"))
-        #expect(answeredWait(readiedAfter, by: "me", at: first) == 0)
-    }
-
-    @Test func responseTimeBelongsToThePeriodOfTheFirstReview() {
-        let prs = [
-            HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: at("2026-10-31T20:00:00Z"), updatedAt: at("2026-11-02T00:00:00Z"), reviews: [
-                review("me", "COMMENTED", "2026-10-31T22:00:00Z"),
-                review("me", "APPROVED", "2026-11-01T09:00:00Z"),
-            ]),
-            HistoryPr(repo: "o/r", number: 2, author: "a", createdAt: at("2026-11-03T08:00:00Z"), updatedAt: at("2026-11-03T12:00:00Z"), reviews: [
-                review("me", "APPROVED", "2026-11-03T12:00:00Z"),
-            ]),
-        ]
-        let stats = reviewerStats(prs, in: november, reviewers: ["me"], teams: [:], now: farFuture, calendar: utc()).first
-        #expect(stats?.responseTimes == [4 * hour])
-        #expect(stats?.medianResponse == 4 * hour)
-        #expect(stats?.reviews == 2)
-    }
-
     @Test func medianTakesTheMiddleOrTheMeanOfTheMiddleTwo() {
         #expect(median([]) == nil)
         #expect(median([5, 1, 3]) == 3)
@@ -139,21 +95,23 @@ import Testing
 
     @Test func leaderboardSortsEitherWayWithMissingValuesLast() {
         let rows = [
-            ReviewerStats(login: "b", reviews: 3, responseTimes: [hour]),
-            ReviewerStats(login: "a", reviews: 3),
-            ReviewerStats(login: "c", reviews: 5, responseTimes: [3 * hour]),
+            stats("b", reviews: 3, responseTimes: [hour]),
+            stats("a", reviews: 3),
+            stats("c", reviews: 5, responseTimes: [3 * hour]),
         ]
         #expect(leaderboard(rows, by: .reviews, isAscending: false).map(\.login) == ["c", "a", "b"])
         #expect(leaderboard(rows, by: .reviews, isAscending: true).map(\.login) == ["a", "b", "c"])
-        #expect(leaderboard(rows, by: .response, isAscending: true).map(\.login) == ["b", "c", "a"])
-        #expect(leaderboard(rows, by: .response, isAscending: false).map(\.login) == ["c", "b", "a"])
+        #expect(leaderboard(rows, by: .ownSpeed, isAscending: true).map(\.login) == ["b", "c", "a"])
+        #expect(leaderboard(rows, by: .ownSpeed, isAscending: false).map(\.login) == ["c", "b", "a"])
     }
 
     @Test func metricsFormatCountsMediansAndDurations() {
         #expect(StatsMetric.reviews.format(4) == "4")
         #expect(StatsMetric.reviews.format(4.5) == "4.5")
-        #expect(StatsMetric.response.format(90 * 60) == "1h")
-        #expect(StatsMetric.response.format(nil) == "—")
+        #expect(StatsMetric.ownSpeed.format(90 * 60) == "1h")
+        #expect(StatsMetric.ownSpeed.format(nil) == "—")
+        #expect(StatsMetric.responseRate.format(0.864) == "86%")
+        #expect(StatsMetric.responseRate.format(nil) == "—")
         #expect(compactDuration(20) == "<1m")
         #expect(compactDuration(3 * 24 * hour) == "3d")
     }
@@ -175,7 +133,7 @@ import Testing
         #expect(report.rows.map(\.login) == ["me", "ana", "bo"])
         #expect(report.mine?.reviews == 1)
         #expect(report.benchmark(.reviews) == Benchmark(median: 1, rank: 2, cohort: 3))
-        #expect(report.benchmark(.response).cohort == 2)
+        #expect(report.benchmark(.responseRate).cohort == 0)
         #expect(report.graph.total == 1)
         #expect(report.span.canGoBack)
         #expect(!StatsReport(history: history, period: .year, offset: -1, now: at("2026-11-25T15:00:00Z"), calendar: utc()).span.canGoBack)
@@ -187,14 +145,15 @@ import Testing
 let hour: TimeInterval = 3600
 let farFuture = at("2030-01-01T00:00:00Z")
 
-/// `pr` with a comment by `reviewer` at `at`, and that reviewer's answered wait from its response samples.
-func answeredWait(_ pr: HistoryPr, by reviewer: String, at: Date, teams: [String: [String]] = [:]) -> TimeInterval? {
-    let reviewed = HistoryPr(
-        repo: pr.repo, number: pr.number, author: pr.author, createdAt: pr.createdAt, updatedAt: pr.updatedAt,
-        readyAt: pr.readyAt, mergedAt: pr.mergedAt, closedAt: pr.closedAt, requests: pr.requests, removals: pr.removals,
-        reviews: pr.reviews + [HistoryReview(author: reviewer, state: "COMMENTED", submittedAt: at)]
-    )
-    return responseSamples(reviewed, teams: teams, now: farFuture).first { $0.reviewer == reviewer && $0.isAnswered }?.wait
+/// Stats for `login` with the given counts, for tests that only need a few fields set.
+func stats(_ login: String, reviews: Int = 0, onTime: Int = 0, late: Int = 0, missed: Int = 0, responseTimes: [TimeInterval] = []) -> ReviewerStats {
+    var row = ReviewerStats(login: login)
+    row.reviews = reviews
+    row.onTime = onTime
+    row.late = late
+    row.missed = missed
+    row.responseTimes = responseTimes
+    return row
 }
 
 func at(_ iso: String) -> Date {

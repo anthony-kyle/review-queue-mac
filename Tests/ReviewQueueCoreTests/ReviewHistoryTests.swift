@@ -123,7 +123,7 @@ import Testing
         #expect(report.rows.filter { $0.reviews > 0 }.count >= 6)
         #expect(report.graph.total > 0)
         #expect(StatsReport(history: demo.reviewHistory.counted(demo.settings), period: .year, offset: -1, now: now, calendar: .current).graph.total > 150)
-        #expect(report.mine?.medianResponse != nil)
+        #expect(report.mine?.responseRate != nil)
         #expect(demo.reviewHistory.prs.allSatisfy { $0.number < 1000 && $0.updatedAt <= now })
         #expect(DemoData(now: now).reviewHistory == demo.reviewHistory)
     }

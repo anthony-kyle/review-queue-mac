@@ -51,8 +51,8 @@ import Testing
         let november = months[months.count - 1]
         #expect(october.mine?.reviews == 0)
         #expect(october.benchmark(.reviews).median == 1)
-        #expect(october.mine.flatMap(StatsMetric.response.value) == nil)
-        #expect(october.benchmark(.response).median != nil)
+        #expect(october.mine.flatMap(StatsMetric.ownSpeed.value) == nil)
+        #expect(october.mine.flatMap(StatsMetric.responseRate.value) == nil)
         #expect(november.mine?.reviews == 1)
         #expect(november.benchmark(.reviews).median == 1)
     }

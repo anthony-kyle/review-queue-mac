@@ -32,6 +32,7 @@ struct StatsContent: View {
     @State private var picked: StatsPeriod?
     @State private var offset = 0
     @State private var trendCache: TrendCache?
+    @State private var indexCache: IndexCache?
     @State private var trendMetric = StatsMetric.reviews
 
     var body: some View {
@@ -41,18 +42,18 @@ struct StatsContent: View {
         let cycles = isSprintOffered ? model.sprintCycles : []
         let fallback = defaultPeriod(isSprintOffered: isSprintOffered, cycles: cycles, now: now)
         let period = picked.flatMap { $0 != .sprint || isSprintOffered ? $0 : nil } ?? fallback
-        let history = model.history.counted(model.settings)
-        let report = StatsReport(history: history, period: period, offset: offset, cycles: cycles, now: now, calendar: calendar)
-        let title = periodTitle(report.span, period: period, calendar: calendar)
-        let trendKey = TrendKey(
-            period: period,
-            offset: offset,
+        let indexKey = IndexKey(
             prs: model.history.prs.count,
             completedAt: model.history.completedAt,
-            cycles: cycles.map(\.id),
             me: model.history.me,
-            allowedBots: model.settings.allowedBotAuthors
+            allowedBots: model.settings.allowedBotAuthors,
+            hour: Int(now.timeIntervalSince1970 / 3600)
         )
+        let index = indexCache.flatMap { $0.key == indexKey ? $0.index : nil }
+            ?? StatsIndex(history: model.history.counted(model.settings), now: now, calendar: calendar)
+        let report = StatsReport(index: index, period: period, offset: offset, cycles: cycles)
+        let title = periodTitle(report.span, period: period, calendar: calendar)
+        let trendKey = TrendKey(period: period, offset: offset, cycles: cycles.map(\.id), index: indexKey)
         VStack(alignment: .leading, spacing: 18) {
             header
             if model.settings.teams.isEmpty {
@@ -66,8 +67,8 @@ struct StatsContent: View {
             if model.settings.sprintTeam != nil, let note = model.sprintNote {
                 Text(note).font(.caption).foregroundStyle(.secondary)
             }
-            HStack(alignment: .top, spacing: 12) {
-                ForEach(StatsMetric.allCases) { metric in
+            HStack(alignment: .top, spacing: 8) {
+                ForEach(StatsMetric.allCases.filter(\.isRanked)) { metric in
                     MetricCard(metric: metric, mine: report.mine, benchmark: report.benchmark(metric))
                 }
             }
@@ -82,7 +83,7 @@ struct StatsContent: View {
                     Spacer()
                     if model.settings.statsPanel == .trend {
                         Picker("Metric", selection: $trendMetric) {
-                            ForEach(StatsMetric.allCases) { Text($0.title).tag($0) }
+                            ForEach(StatsMetric.allCases) { Text($0.trendTitle).tag($0) }
                         }
                         .labelsHidden()
                         .fixedSize()
@@ -98,9 +99,11 @@ struct StatsContent: View {
         }
         .padding(24)
         .onChange(of: isSprintOffered) { offset = 0 }
+        .task(id: indexKey) {
+            if indexCache?.key != indexKey { indexCache = IndexCache(key: indexKey, index: index) }
+        }
         .task(id: trendKey) {
-            let points = trend(period, endingAt: offset, history: history, cycles: cycles, now: Date(), calendar: calendar)
-            trendCache = TrendCache(key: trendKey, points: points)
+            trendCache = TrendCache(key: trendKey, points: trend(period, endingAt: offset, index: index, cycles: cycles))
         }
         .frame(minWidth: Self.width, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
@@ -185,16 +188,28 @@ private func axisLabel(_ span: PeriodSpan, period: StatsPeriod, calendar: Calend
     }
 }
 
-/// What the trend depends on, so it is computed once per change of period, offset, history, cycles or allowed bots
-/// rather than on every render.
+/// What the stats index depends on, so it is built once per change of history, allowed bots or hour (which moves
+/// pending requests past their deadlines) rather than on every render.
+private struct IndexKey: Hashable {
+    let prs: Int
+    let completedAt: Date?
+    let me: String?
+    let allowedBots: [String]
+    let hour: Int
+}
+
+private struct IndexCache {
+    let key: IndexKey
+    let index: StatsIndex
+}
+
+/// What the trend depends on, so it is computed once per change of period, offset, cycles or index rather than on every
+/// render.
 private struct TrendKey: Hashable {
     let period: StatsPeriod
     let offset: Int
-    let prs: Int
-    let completedAt: Date?
     let cycles: [String]
-    let me: String?
-    let allowedBots: [String]
+    let index: IndexKey
 }
 
 private struct TrendCache {
@@ -236,7 +251,7 @@ private struct TrendView: View {
     var body: some View {
         let data = trendPoints
         VStack(alignment: .leading, spacing: 10) {
-            chart(data).frame(height: 200)
+            chart(data).frame(height: 180)
             HStack(spacing: 16) {
                 legendItem("You", color: Self.you, width: 2.5)
                 legendItem("Team median", color: .secondary, width: 1.5, dash: [5, 4])
@@ -266,7 +281,7 @@ private struct TrendView: View {
     }
 
     private func plotted(_ value: Double) -> Double {
-        metric == .response ? value / Self.hour : value
+        metric == .ownSpeed ? value / Self.hour : value
     }
 
     /// The factor that stretches backlog counts over the metric's range, so both lines use the chart's height.
@@ -339,7 +354,7 @@ private struct TrendView: View {
                 AxisGridLine()
                 AxisValueLabel {
                     if let number = value.as(Double.self) {
-                        Text(metric == .response ? compactDuration(number * Self.hour) : metric.format(number))
+                        Text(metric == .ownSpeed ? compactDuration(number * Self.hour) : metric.format(number))
                     }
                 }
             }
@@ -355,7 +370,7 @@ private struct TrendView: View {
     }
 
     private func tooltip(_ point: TrendPoint) -> some View {
-        let unplot = { (value: Double?) in value.map { self.metric == .response ? $0 * Self.hour : $0 } }
+        let unplot = { (value: Double?) in value.map { self.metric == .ownSpeed ? $0 * Self.hour : $0 } }
         return VStack(alignment: .leading, spacing: 2) {
             Text(periodTitle(point.stats.span, period: period, calendar: calendar)).font(.caption.weight(.semibold))
             Text("You: \(metric.format(unplot(point.mine)))\(point.isPartial ? " so far" : "")")
@@ -610,33 +625,42 @@ private struct DayCell: View {
     }
 }
 
-/// One metric: your value, the team median, and your rank. Response time has no rank until you have a response sample
-/// in the period, and also shows how many of your samples there are unanswered requests.
+/// One ranked metric: your value, the team median and your rank. Response rate also says how many requests you answered
+/// within a business day, how many you missed or still have pending, and your own median time to respond, which is
+/// never ranked.
 private struct MetricCard: View {
     let metric: StatsMetric
     let mine: ReviewerStats?
     let benchmark: Benchmark
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 5) {
             Text(metric.title).font(.callout).foregroundStyle(.secondary)
             Text(mine.map(metric.text) ?? "—")
-                .font(.system(size: 30, weight: .semibold, design: .rounded))
+                .font(.system(size: 26, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-            Text("Team median \(metric.format(benchmark.median))").font(.callout)
-            Text(standing).font(.callout).foregroundStyle(.secondary)
-            if metric == .response, let unanswered = mine?.unanswered {
-                Text("\(unanswered) unanswered").font(.callout).foregroundStyle(unanswered > 0 ? Color.orange : Color.secondary)
+            if metric == .responseRate, let mine {
+                Text("\(mine.onTime) of \(mine.onTime + mine.late + mine.missed) within 1 business day")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Team median \(metric.format(benchmark.median))").font(.caption)
+            Text(standing).font(.caption).foregroundStyle(.secondary)
+            if metric == .responseRate, let mine {
+                if mine.missed > 0 { Text("\(mine.missed) missed").font(.caption).foregroundStyle(.orange) }
+                if mine.pending > 0 { Text("\(mine.pending) pending").font(.caption).foregroundStyle(.secondary) }
+                Text("Your median: \(StatsMetric.ownSpeed.text(mine))").font(.caption).foregroundStyle(.secondary)
             }
         }
-        .padding(14)
+        .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private var standing: String {
         guard let rank = benchmark.rank, let top = benchmark.topPercent else {
-            return metric == .response ? "No responses to time" : "No team to compare"
+            return metric == .responseRate ? "No requests due" : "No team to compare"
         }
         return "\(rankText(rank, of: benchmark.cohort)) · Top \(top)%"
     }
@@ -645,7 +669,7 @@ private struct MetricCard: View {
 /// Everyone in the teams with the period's numbers, sortable by any column (click again to reverse), with your row
 /// highlighted.
 private struct LeaderboardView: View {
-    private static let column: CGFloat = 128
+    private static let column: CGFloat = 96
 
     let rows: [ReviewerStats]
     let me: String?

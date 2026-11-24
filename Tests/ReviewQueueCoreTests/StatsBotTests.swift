@@ -11,8 +11,8 @@ import Testing
         return settings
     }
 
-    /// A human PR, plus a bot PR that would add a review, an approval, an unblock, an unanswered request and response
-    /// samples to "me" if it counted.
+    /// A human PR, plus a bot PR that would add a review, an approval, an unblock, a late response and a missed request
+    /// if it counted.
     private var history: ReviewHistory {
         let ready = at("2026-11-02T00:00:00Z")
         let human = HistoryPr(repo: "acme/web", number: 1, author: "ana", authorIsBot: false, createdAt: ready, updatedAt: ready, reviews: [review("me", "COMMENTED", "2026-11-02T02:00:00Z")])
@@ -30,8 +30,9 @@ import Testing
         #expect(mine?.reviews == 1)
         #expect(mine?.approved == 0)
         #expect(mine?.unblocked == 0)
-        #expect(mine?.responseTimes == [2 * hour])
-        #expect(report.rows.first { $0.login == "bo" }?.unanswered == 0)
+        #expect(mine?.responseTimes == [])
+        #expect(mine?.late == 0)
+        #expect(report.rows.first { $0.login == "bo" }?.missed == 0)
         #expect(report.graph.total == 1)
         #expect(trend(.month, endingAt: 0, history: history.counted(allowing([])), cycles: [], now: now, calendar: utc()).last == report.stats)
     }
@@ -42,7 +43,8 @@ import Testing
             #expect(report.mine?.reviews == 2)
             #expect(report.mine?.approved == 1)
             #expect(report.mine?.unblocked == 1)
-            #expect(report.rows.first { $0.login == "bo" }?.unanswered == 1)
+            #expect(report.mine?.late == 1)
+            #expect(report.rows.first { $0.login == "bo" }?.missed == 1)
             #expect(trend(.month, endingAt: 0, history: history.counted(allowing([listed])), cycles: [], now: now, calendar: utc()).last == report.stats)
         }
     }
