@@ -6,8 +6,14 @@ private let maxCheckNames = 3
 /// doesn't parse.
 public func compactAge(_ iso: String, now: Date) -> String {
     guard let date = try? Date(iso, strategy: .iso8601) else { return "" }
-    let minutes = max(0, Int((now.timeIntervalSince(date) / 60).rounded(.down)))
-    if minutes < 1 { return "now" }
+    let elapsed = now.timeIntervalSince(date)
+    return elapsed < 60 ? "now" : compactDuration(elapsed)
+}
+
+/// A span of time in its largest whole unit, for tight columns: `<1m`, `12m`, `5h`, `3d`, `6w`.
+public func compactDuration(_ seconds: TimeInterval) -> String {
+    let minutes = max(0, Int((seconds / 60).rounded(.down)))
+    if minutes < 1 { return "<1m" }
     if minutes < 60 { return "\(minutes)m" }
     let hours = minutes / 60
     if hours < 24 { return "\(hours)h" }

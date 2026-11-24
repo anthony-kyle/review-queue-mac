@@ -45,6 +45,12 @@ struct ReviewNode: Decodable, Sendable {
     let state: String
     var commit: CommitRef?
     var id: String?
+    var submittedAt: String?
+}
+
+struct PageInfo: Decodable, Sendable {
+    let hasNextPage: Bool
+    let endCursor: String?
 }
 
 struct CommentNode: Decodable, Sendable {
@@ -153,6 +159,8 @@ struct DetailNode: Decodable, Sendable {
 struct Repo: Hashable, Sendable {
     let owner: String
     let name: String
+
+    var fullName: String { "\(owner)/\(name)" }
 }
 
 struct Candidate: Sendable {

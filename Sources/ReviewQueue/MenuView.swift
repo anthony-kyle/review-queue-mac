@@ -46,7 +46,8 @@ struct MenuView: View {
     }
 }
 
-/// A menu bar window's frame: status line with Refresh, Settings (opening `tab`) and Quit, then `content`, which gets
+/// A menu bar window's frame: status line with Refresh, Statistics (review queue only), Settings (opening `tab`) and
+/// Quit, then `content`, which gets
 /// the Settings action for its own empty states. `fixedSize` pins the panel's minimum and maximum height to its ideal
 /// height, so the MenuBarExtra window's hosting view is constrained to the content and shrinks with it instead of
 /// keeping an earlier, taller size with the content centred. Don't wrap it in a flexible frame: that lifts the maximum.
@@ -56,6 +57,7 @@ struct MenuPanel<Content: View>: View {
     let fetchedAt: Date?
     @ViewBuilder let content: (_ showSettings: @escaping () -> Void) -> Content
     @Environment(\.openSettings) private var openSettings
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -77,6 +79,9 @@ struct MenuPanel<Content: View>: View {
                     HeaderButton(symbol: "arrow.clockwise", help: "Refresh") { Task { await model.refresh() } }
                         .symbolEffect(.rotate, options: .repeat(.continuous), isActive: model.isLoading)
                         .disabled(model.isLoading)
+                    if tab == .reviewQueue {
+                        HeaderButton(symbol: "chart.bar.xaxis", help: "Statistics", action: showStatistics)
+                    }
                     HeaderButton(symbol: "gearshape", help: "Settings", action: showSettings)
                     HeaderButton(symbol: "power", help: "Quit Review Queue") { NSApplication.shared.terminate(nil) }
                 }
@@ -88,6 +93,11 @@ struct MenuPanel<Content: View>: View {
         if model.isLoading { return "Refreshing…" }
         guard let fetchedAt else { return "Not loaded yet" }
         return "Updated \(clockTime(fetchedAt)) · every \(model.settings.intervalMinutes)m"
+    }
+
+    private func showStatistics() {
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        openWindow(id: StatsView.windowId)
     }
 
     private func showSettings() {

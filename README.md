@@ -27,7 +27,7 @@ make test   # swift test
 make app    # release build, assembles build/ReviewQueue.app and code-signs it
 make run    # make app, then open it
 make install  # make app, replace /Applications/ReviewQueue.app and relaunch it
-make screenshots  # make app, then capture both menus and every Settings tab on demo data to docs/images
+make screenshots  # make app, then capture both menus, every Settings tab and the statistics window on demo data to docs/images
 ```
 
 `make screenshots` launches the app with `--screenshots <shot>`, which swaps in built-in fake data (no network, disk, Keychain or notifications) and shows one screen per run. It brings each run to the front through System Events, since Liquid Glass only draws its tints in the active app, so the terminal needs Automation access to System Events and Screen Recording access for `screencapture`. Run it on a Retina display for 2x images.
@@ -44,7 +44,7 @@ Run `make install` before turning on Launch at login, since `SMAppService` regis
 
 Open Settings from the review queue's menu bar window and pick your GitHub teams. Open PRs in those teams' repos (owned or writable, your choice) make up the queue, minus your own PRs and bot PRs (unless you list the bot under Allowed bot authors). Both lists refresh together every 15 minutes by default (5, 10, 15, 30 or 60), on wake from sleep, and when you open either menu with data older than the interval. A failure in one list shows on its own menu and leaves the other untouched.
 
-Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.ReviewQueue/`, next to the notification seen-state of both menus, the Done marks, the acknowledged My PRs comments, the Linear lookup cache and the registered Linear OAuth client id. The Linear OAuth tokens live in the Keychain.
+Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.ReviewQueue/`, next to the notification seen-state of both menus, the Done marks, the acknowledged My PRs comments, the Linear lookup cache, the review statistics history and the registered Linear OAuth client id. The Linear OAuth tokens live in the Keychain.
 
 ### Settings
 
@@ -93,6 +93,21 @@ Blocks, in order:
 5. **Drafts**.
 
 Cards reuse the queue's card-detail toggles (waiting, approvals, changes-requests, comments, threads, CI, failing and neutral checks); the waiting line also lists requested reviewers. The menu bar pill takes its colour from these blocks; see [Menu bar pills](#menu-bar-pills).
+
+## Review statistics
+
+The chart button in the review queue's header opens a Review statistics window with how you review compared with your teams.
+
+<p>
+<img width="100%" alt="Review statistics window" src="docs/images/stats.png" />
+</p>
+
+- **Heatmap**: a GitHub-style grid of your reviews per day over the last 52 weeks and the current one, Sunday to Saturday, with a five-step green scale set by the quartiles of your busy days. Hover a day for its count; days in the selected period are outlined.
+- **Period**: Week, Month (the default), Quarter or Year, as calendar periods you can step back through (never into the future, nor past the year of kept history).
+- **Metrics**: reviews done (each PR counts once per day you approve, request changes or comment on it), PRs approved, PRs with changes requested, and average time to respond. Response time runs from the later of the PR becoming ready for review and your review being requested to your first review of it, and is counted in the period of that first review. Reviews on your own PRs, bot reviews, and dismissed or pending reviews never count.
+- **Benchmark**: each metric shows the median and your rank among your chosen teams' members, counting only reviews in the teams' repos. Teammates with no reviews in the period count as zero; anyone without a timed first review is left out of response-time ranking. **Show leaderboard** (off by default, remembered in Settings) lists everyone by name, sortable by any column, with your row highlighted.
+
+History is fetched separately from the queue, only for the statistics window: every PR updated within the last year in the teams' repos, with its ready and review-requested events and up to 100 reviews. It is cached in `review-history.json`, so the window shows the last data straight away, and refreshes when opened if over an hour old, or with its Refresh button. Later refreshes only page back to just before the previous one. The first load can take a while on busy repos and shows its progress; if GitHub's API budget runs low or a repo fails, it keeps what it has and says so.
 
 ## Notifications
 

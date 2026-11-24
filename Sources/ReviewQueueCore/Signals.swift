@@ -35,7 +35,8 @@ public func mySignal(_ pr: MyPr, _ context: MyPrsContext) -> PrSignal? {
     return nil
 }
 
-private func counted(_ count: Int, _ noun: String) -> String {
+/// `count` and `noun`, plural unless the count is one: `1 thread`, `3 threads`.
+public func counted(_ count: Int, _ noun: String) -> String {
     count == 1 ? "1 \(noun)" : "\(count) \(noun)s"
 }
 

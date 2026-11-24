@@ -33,6 +33,13 @@ struct ReviewQueueApp: App {
         Settings {
             SettingsView(model: model, maxHeight: ScreenshotStage.isEnabled ? .infinity : 700)
         }
+
+        Window("Review statistics", id: StatsView.windowId) {
+            StatsView(model: model)
+        }
+        .defaultSize(width: StatsContent.width, height: 860)
+        .windowResizability(.contentMinSize)
+        .defaultLaunchBehavior(.suppressed)
     }
 }
 
