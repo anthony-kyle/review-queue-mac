@@ -1,3 +1,4 @@
+import Charts
 import ReviewQueueCore
 import SwiftUI
 
@@ -20,15 +21,18 @@ struct StatsView: View {
     }
 }
 
-/// Header with refresh and progress, the selected period's graph, the period picker, your metrics against the team's, and the
-/// leaderboard when it is switched on. Until a period is picked it follows the default: Sprint while it is offered and a
-/// cycle is running, else Month, so it switches to Sprint once cycles arrive. Sprint is only listed while offered.
+/// Header with refresh and progress, the selected period's graph, the period picker, your metrics against the team's,
+/// and one panel below them: the trend or the leaderboard, as saved in Settings, with the trend's metric menu beside
+/// the switch. Until a period is picked it follows the default: Sprint while it is offered and a cycle is running, else
+/// Month, so it switches to Sprint once cycles arrive. Sprint is only listed while offered.
 struct StatsContent: View {
     static let width: CGFloat = 900
 
     let model: AppModel
     @State private var picked: StatsPeriod?
     @State private var offset = 0
+    @State private var trendCache: TrendCache?
+    @State private var trendMetric = StatsMetric.reviews
 
     var body: some View {
         let calendar = Calendar.current
@@ -39,6 +43,14 @@ struct StatsContent: View {
         let period = picked.flatMap { $0 != .sprint || isSprintOffered ? $0 : nil } ?? fallback
         let report = StatsReport(history: model.history, period: period, offset: offset, cycles: cycles, now: now, calendar: calendar)
         let title = periodTitle(report.span, period: period, calendar: calendar)
+        let trendKey = TrendKey(
+            period: period,
+            offset: offset,
+            prs: model.history.prs.count,
+            completedAt: model.history.completedAt,
+            cycles: cycles.map(\.id),
+            me: model.history.me
+        )
         VStack(alignment: .leading, spacing: 22) {
             header
             if model.settings.teams.isEmpty {
@@ -58,15 +70,36 @@ struct StatsContent: View {
                 }
             }
             VStack(alignment: .leading, spacing: 12) {
-                Toggle("Show leaderboard", isOn: settingsBinding(model, \.isLeaderboardShown))
-                    .toggleStyle(.switch)
-                if model.settings.isLeaderboardShown {
+                HStack {
+                    Picker("Panel", selection: settingsBinding(model, \.statsPanel)) {
+                        ForEach(StatsPanel.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 220)
+                    Spacer()
+                    if model.settings.statsPanel == .trend {
+                        Picker("Metric", selection: $trendMetric) {
+                            ForEach(StatsMetric.allCases) { Text($0.title).tag($0) }
+                        }
+                        .labelsHidden()
+                        .fixedSize()
+                    }
+                }
+                switch model.settings.statsPanel {
+                case .trend:
+                    TrendView(points: trendCache?.points ?? [], metric: trendMetric, period: period, calendar: calendar, now: now)
+                case .leaderboard:
                     LeaderboardView(rows: report.rows, me: report.me)
                 }
             }
         }
         .padding(24)
         .onChange(of: isSprintOffered) { offset = 0 }
+        .task(id: trendKey) {
+            let points = trend(period, endingAt: offset, history: model.history, cycles: cycles, now: Date(), calendar: calendar)
+            trendCache = TrendCache(key: trendKey, points: points)
+        }
         .frame(minWidth: Self.width, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -112,22 +145,199 @@ struct StatsContent: View {
                 .disabled(!report.span.canGoForward)
         }
     }
+}
 
-    private func periodTitle(_ span: PeriodSpan, period: StatsPeriod, calendar: Calendar) -> String {
-        let start = span.interval.start
-        let last = calendar.date(byAdding: .day, value: -1, to: span.interval.end) ?? start
-        if let cycle = span.cycle {
-            return "\(cycle.title) · \((start..<max(start, last)).formatted(.interval.day().month(.abbreviated)))"
+/// The selected span as the period bar and graph header name it: a cycle with its dates, a week's dates, a month,
+/// a quarter or a year.
+private func periodTitle(_ span: PeriodSpan, period: StatsPeriod, calendar: Calendar) -> String {
+    let start = span.interval.start
+    let last = calendar.date(byAdding: .day, value: -1, to: span.interval.end) ?? start
+    if let cycle = span.cycle {
+        return "\(cycle.title) · \((start..<max(start, last)).formatted(.interval.day().month(.abbreviated)))"
+    }
+    switch period {
+    case .week:
+        return "\(start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated).year()))"
+    case .sprint, .month:
+        return start.formatted(.dateTime.month(.wide).year())
+    case .quarter:
+        return "Q\(quarter(of: start, calendar: calendar)) \(start.formatted(.dateTime.year()))"
+    case .year:
+        return start.formatted(.dateTime.year())
+    }
+}
+
+private func quarter(of date: Date, calendar: Calendar) -> Int {
+    (calendar.component(.month, from: date) - 1) / 3 + 1
+}
+
+/// A span's short name for the trend's x-axis: `C42`, `23 Nov`, `Nov`, `Q4` or `2026`.
+private func axisLabel(_ span: PeriodSpan, period: StatsPeriod, calendar: Calendar) -> String {
+    let start = span.interval.start
+    if let cycle = span.cycle { return "C\(cycle.number)" }
+    switch period {
+    case .week: return start.formatted(.dateTime.day().month(.abbreviated))
+    case .sprint, .month: return start.formatted(.dateTime.month(.abbreviated))
+    case .quarter: return "Q\(quarter(of: start, calendar: calendar))"
+    case .year: return start.formatted(.dateTime.year())
+    }
+}
+
+/// What the trend depends on, so it is computed once per change of period, offset, history or cycles rather than on
+/// every render.
+private struct TrendKey: Hashable {
+    let period: StatsPeriod
+    let offset: Int
+    let prs: Int
+    let completedAt: Date?
+    let cycles: [String]
+    let me: String?
+}
+
+private struct TrendCache {
+    let key: TrendKey
+    let points: [PeriodStats]
+}
+
+/// One period's metric for the trend chart: your value (nil leaves a gap) and the team median, both in the chart's
+/// units, which are hours for response time.
+private struct TrendPoint: Identifiable {
+    let id: Int
+    let stats: PeriodStats
+    let mine: Double?
+    let median: Double?
+    let run: Int
+    let isPartial: Bool
+}
+
+/// The chosen metric over the trend's periods: you as a solid line with points, broken where you have no value, and
+/// the team median dashed. The last point is the selected period, drawn larger; a period still running is hollow and
+/// reads "so far". Hovering shows the period, your value and the median. Fixed height, so it never sizes the window.
+private struct TrendView: View {
+    private static let you = Color.green
+    private static let hour: Double = 3600
+
+    let points: [PeriodStats]
+    let metric: StatsMetric
+    let period: StatsPeriod
+    let calendar: Calendar
+    let now: Date
+    @State private var selected: Int?
+
+    var body: some View {
+        let data = trendPoints
+        VStack(alignment: .leading, spacing: 10) {
+            chart(data).frame(height: 220)
+            HStack(spacing: 16) {
+                legendItem("You", dash: [])
+                legendItem("Team median", dash: [5, 4])
+                Spacer()
+            }
+            .font(.caption)
+            .foregroundStyle(.secondary)
         }
-        switch period {
-        case .week:
-            return "\(start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated).year()))"
-        case .sprint, .month:
-            return start.formatted(.dateTime.month(.wide).year())
-        case .quarter:
-            return "Q\((calendar.component(.month, from: start) - 1) / 3 + 1) \(start.formatted(.dateTime.year()))"
-        case .year:
-            return start.formatted(.dateTime.year())
+    }
+
+    private var trendPoints: [TrendPoint] {
+        var run = 0
+        var wasGap = false
+        return points.enumerated().map { index, stats in
+            let mine = stats.mine.flatMap(metric.value).map(plotted)
+            if mine == nil { wasGap = true } else if wasGap { run += 1; wasGap = false }
+            return TrendPoint(
+                id: index,
+                stats: stats,
+                mine: mine,
+                median: stats.benchmark(metric).median.map(plotted),
+                run: run,
+                isPartial: stats.isPartial(now: now)
+            )
+        }
+    }
+
+    private func plotted(_ value: Double) -> Double {
+        metric == .response ? value / Self.hour : value
+    }
+
+    private func chart(_ data: [TrendPoint]) -> some View {
+        Chart {
+            ForEach(data) { point in
+                if let median = point.median {
+                    LineMark(x: .value("Period", point.id), y: .value("Value", median), series: .value("Series", "median"))
+                        .foregroundStyle(Color.secondary)
+                        .lineStyle(StrokeStyle(lineWidth: 1.5, dash: [5, 4]))
+                }
+            }
+            ForEach(data) { point in
+                if let mine = point.mine {
+                    let isLast = point.id == data.count - 1
+                    LineMark(x: .value("Period", point.id), y: .value("Value", mine), series: .value("Series", "you \(point.run)"))
+                        .foregroundStyle(Self.you)
+                        .lineStyle(StrokeStyle(lineWidth: 2.5))
+                    PointMark(x: .value("Period", point.id), y: .value("Value", mine))
+                        .symbol {
+                            Circle()
+                                .fill(point.isPartial ? Color.clear : Self.you)
+                                .stroke(Self.you, lineWidth: 2)
+                                .frame(width: isLast ? 12 : 8, height: isLast ? 12 : 8)
+                        }
+                }
+            }
+            if let selected, data.indices.contains(selected) {
+                RuleMark(x: .value("Period", selected))
+                    .foregroundStyle(Color.secondary.opacity(0.35))
+                    .annotation(position: .top, overflowResolution: .init(x: .fit(to: .chart), y: .disabled)) {
+                        tooltip(data[selected])
+                    }
+            }
+        }
+        .chartLegend(.hidden)
+        .chartXScale(domain: -0.5...(Double(max(data.count, 1)) - 0.5))
+        .chartXAxis {
+            AxisMarks(values: data.map(\.id)) { value in
+                AxisGridLine()
+                AxisValueLabel(anchor: .top) {
+                    if let index = value.as(Int.self), data.indices.contains(index) {
+                        Text(axisLabel(data[index].stats.span, period: period, calendar: calendar))
+                    }
+                }
+            }
+        }
+        .chartYScale(domain: .automatic(includesZero: true))
+        .chartYAxis {
+            AxisMarks { value in
+                AxisGridLine()
+                AxisValueLabel {
+                    if let number = value.as(Double.self) {
+                        Text(metric == .response ? compactDuration(number * Self.hour) : metric.format(number))
+                    }
+                }
+            }
+        }
+        .chartXSelection(value: $selected)
+    }
+
+    private func tooltip(_ point: TrendPoint) -> some View {
+        let unplot = { (value: Double?) in value.map { self.metric == .response ? $0 * Self.hour : $0 } }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(periodTitle(point.stats.span, period: period, calendar: calendar)).font(.caption.weight(.semibold))
+            Text("You: \(metric.format(unplot(point.mine)))\(point.isPartial ? " so far" : "")")
+            Text("Team median: \(metric.format(unplot(point.median)))")
+        }
+        .font(.caption)
+        .padding(8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+    }
+
+    private func legendItem(_ name: String, dash: [CGFloat]) -> some View {
+        HStack(spacing: 6) {
+            Path { path in
+                path.move(to: CGPoint(x: 0, y: 4))
+                path.addLine(to: CGPoint(x: 22, y: 4))
+            }
+            .stroke(dash.isEmpty ? Self.you : Color.secondary, style: StrokeStyle(lineWidth: dash.isEmpty ? 2.5 : 1.5, dash: dash))
+            .frame(width: 22, height: 8)
+            Text(name)
         }
     }
 }

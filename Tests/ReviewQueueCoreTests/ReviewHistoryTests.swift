@@ -100,7 +100,19 @@ import Testing
 
     @Test func leaderboardStartsHiddenForSettingsSavedBeforeIt() throws {
         let settings = try JSONDecoder().decode(QueueSettings.self, from: Data(#"{"teams":["acme/web"]}"#.utf8))
-        #expect(!settings.isLeaderboardShown)
+        #expect(settings.statsPanel == .trend)
+    }
+
+    @Test func theOldLeaderboardToggleDecodesAsTheMatchingPanel() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(QueueSettings.self, from: Data(json.utf8)) }
+        #expect(try decode(#"{"isLeaderboardShown":true}"#).statsPanel == .leaderboard)
+        #expect(try decode(#"{"isLeaderboardShown":false}"#).statsPanel == .trend)
+        #expect(try decode(#"{"isLeaderboardShown":true,"statsPanel":"trend"}"#).statsPanel == .trend)
+        var settings = QueueSettings()
+        settings.statsPanel = .leaderboard
+        let encoded = try JSONEncoder().encode(settings)
+        #expect(try JSONDecoder().decode(QueueSettings.self, from: encoded) == settings)
+        #expect(!String(decoding: encoded, as: UTF8.self).contains("isLeaderboardShown"))
     }
 
     @Test func demoHistoryFillsTheGraphAndEveryTeammatesRow() {

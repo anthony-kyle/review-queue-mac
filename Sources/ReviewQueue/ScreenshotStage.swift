@@ -86,7 +86,6 @@ enum ScreenshotStage {
                 ("No reviews", .myPrs(needsYou: 0, ready: 0, waiting: 0, behind: 0)),
             ])
         case .stats:
-            model.update { $0.isLeaderboardShown = true }
             window = invisibleWindow(StatsOpener())
         case .settingsReviewQueue, .settingsMyPrs, .settingsGeneral:
             model.settingsTab = shot.settingsTab ?? .reviewQueue

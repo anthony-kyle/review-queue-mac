@@ -21,7 +21,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     public var highSound = "Sosumi"
     public var normalSound = "Glass"
     public var myPrs = MyPrsSettings()
-    public var isLeaderboardShown = false
+    public var statsPanel = StatsPanel.trend
     public var sprintTeam: LinearTeam?
 
     public init() {}
@@ -29,7 +29,11 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case intervalMinutes, teams, repoAccess, highUsers, lowUsers, hiddenDetails, blockPrefs, linearWorkspace, ignoredCiSources, allowedBotAuthors
         case notifyHigh, repeatHighReminders, notifyNeeds, notifyReviewRequested, highSound, normalSound, myPrs
-        case isLeaderboardShown, sprintTeam
+        case statsPanel, sprintTeam
+    }
+
+    private enum LegacyKeys: String, CodingKey {
+        case isLeaderboardShown
     }
 
     public init(from decoder: any Decoder) throws {
@@ -52,7 +56,8 @@ public struct QueueSettings: Codable, Equatable, Sendable {
         highSound = try c.value(.highSound, or: d.highSound)
         normalSound = try c.value(.normalSound, or: d.normalSound)
         myPrs = try c.value(.myPrs, or: d.myPrs)
-        isLeaderboardShown = try c.value(.isLeaderboardShown, or: d.isLeaderboardShown)
+        let wasLeaderboardShown = try decoder.container(keyedBy: LegacyKeys.self).value(.isLeaderboardShown, or: false)
+        statsPanel = try c.value(.statsPanel, or: wasLeaderboardShown ? .leaderboard : d.statsPanel)
         sprintTeam = try c.value(.sprintTeam, or: d.sprintTeam)
     }
 
@@ -106,6 +111,21 @@ public struct QueueSettings: Codable, Equatable, Sendable {
 
     public func shows(_ detail: CardDetail) -> Bool {
         !hiddenDetails.contains(detail)
+    }
+}
+
+/// What the statistics window shows below the metric cards. Settings saved before the switch carried a leaderboard
+/// toggle, which decodes as `leaderboard` when it was on.
+public enum StatsPanel: String, Codable, CaseIterable, Identifiable, Sendable {
+    case trend, leaderboard
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .trend: "Trend"
+        case .leaderboard: "Leaderboard"
+        }
     }
 }
 

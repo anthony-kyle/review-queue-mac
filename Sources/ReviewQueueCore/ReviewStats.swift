@@ -335,31 +335,79 @@ public func periodSpan(_ period: StatsPeriod, offset: Int, cycles: [LinearCycle]
     return PeriodSpan(interval: interval, cycle: nil, canGoBack: interval.start > start, canGoForward: steps < 0)
 }
 
-/// Everything the statistics window shows for one period: your reviews in it as a graph, shaded on the quartiles of
-/// your whole kept history so a shade means the same in every period, and every cohort member's stats for the period,
-/// where the cohort is the teams' human members plus you. Members and you come from the history, so a cached
-/// history renders the same before any refresh.
-public struct StatsReport: Equatable, Sendable {
-    public let me: String?
+/// Every cohort member's stats for one span, where the cohort is the teams' human members plus you, with your row and
+/// your standing against the team. The cards, the leaderboard and each trend point all read from this.
+public struct PeriodStats: Equatable, Sendable {
     public let span: PeriodSpan
-    public let graph: PeriodGraph
+    public let me: String?
     public let rows: [ReviewerStats]
 
-    public init(history: ReviewHistory, period: StatsPeriod, offset: Int, cycles: [LinearCycle] = [], now: Date, calendar: Calendar) {
+    public init(history: ReviewHistory, span: PeriodSpan, calendar: Calendar) {
+        self.span = span
         me = history.me
-        span = periodSpan(period, offset: offset, cycles: cycles, now: now, calendar: calendar)
-        let counts = history.me.map { dailyReviewCounts(history.prs, reviewer: $0, calendar: calendar) } ?? [:]
-        let style = GraphStyle(period)
-        graph = periodGraph(span.interval, style: style, counts: counts, thresholds: heatmapThresholds(Array(counts.values)), today: now, calendar: calendar)
         let cohort = unique(history.members + (history.me.map { [$0] } ?? [])).filter { !$0.hasSuffix("[bot]") }
         rows = reviewerStats(history.prs, in: span.interval, reviewers: cohort, calendar: calendar)
     }
-
-    public var interval: DateInterval { span.interval }
 
     public var mine: ReviewerStats? { rows.first { $0.login == me } }
 
     public func benchmark(_ metric: StatsMetric) -> Benchmark {
         ReviewQueueCore.benchmark(mine.flatMap(metric.value), among: rows.map(metric.value), isLowerBetter: metric.isLowerBetter)
     }
+
+    /// Whether the span is still running at `now`, so its numbers are only so far.
+    public func isPartial(now: Date) -> Bool {
+        span.interval.end > now
+    }
+}
+
+/// Everything the statistics window shows for one period: your reviews in it as a graph, shaded on the quartiles of
+/// your whole kept history so a shade means the same in every period, and the period's stats. Members and you come
+/// from the history, so a cached history renders the same before any refresh.
+public struct StatsReport: Equatable, Sendable {
+    public let stats: PeriodStats
+    public let graph: PeriodGraph
+
+    public init(history: ReviewHistory, period: StatsPeriod, offset: Int, cycles: [LinearCycle] = [], now: Date, calendar: Calendar) {
+        stats = PeriodStats(history: history, span: periodSpan(period, offset: offset, cycles: cycles, now: now, calendar: calendar), calendar: calendar)
+        let counts = history.me.map { dailyReviewCounts(history.prs, reviewer: $0, calendar: calendar) } ?? [:]
+        graph = periodGraph(stats.span.interval, style: GraphStyle(period), counts: counts, thresholds: heatmapThresholds(Array(counts.values)), today: now, calendar: calendar)
+    }
+
+    public var span: PeriodSpan { stats.span }
+    public var interval: DateInterval { stats.span.interval }
+    public var me: String? { stats.me }
+    public var rows: [ReviewerStats] { stats.rows }
+    public var mine: ReviewerStats? { stats.mine }
+
+    public func benchmark(_ metric: StatsMetric) -> Benchmark {
+        stats.benchmark(metric)
+    }
+}
+
+/// How many points the trend shows for each period: 12 cycles, weeks or months, 4 quarters, and every year the history
+/// reaches.
+func trendLength(_ period: StatsPeriod) -> Int {
+    switch period {
+    case .sprint, .week, .month: 12
+    case .quarter: 4
+    case .year: Int.max
+    }
+}
+
+/// The trend's periods, oldest first, ending at the one `offset` selects: up to `trendLength` of them, never one that
+/// starts before the kept history (the selected period always counts). Each is computed exactly as the cards compute
+/// the selected period.
+public func trend(_ period: StatsPeriod, endingAt offset: Int, history: ReviewHistory, cycles: [LinearCycle], now: Date, calendar: Calendar) -> [PeriodStats] {
+    let start = historyStart(today: now, calendar: calendar)
+    var spans: [PeriodSpan] = []
+    var step = min(offset, 0)
+    while spans.count < trendLength(period) {
+        let span = periodSpan(period, offset: step, cycles: cycles, now: now, calendar: calendar)
+        guard spans.isEmpty || span.interval.start >= start else { break }
+        spans.insert(span, at: 0)
+        guard span.canGoBack else { break }
+        step -= 1
+    }
+    return spans.map { PeriodStats(history: history, span: $0, calendar: calendar) }
 }
