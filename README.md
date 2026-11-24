@@ -58,7 +58,7 @@ The settings window has three tabs, and each menu's Settings button opens its ow
 
 - **Review queue**: teams, repo access, allowed bot authors, per-block sort, approved-by-others and changes-requested-by-others inclusions, and pinned / muted authors, and the queue's notification rules.
 - **My PRs**: excluded orgs and repos, bot comments, ignored commenters, notification rules and per-block sort.
-- **General**: Linear sign-in and workspace slug, refresh interval, card details (shared by both menus), ignored CI sources, the loud alert sound with a Test button, and launch at login.
+- **General**: Linear sign-in, workspace slug and the sprint team for Review statistics, refresh interval, card details (shared by both menus), ignored CI sources, the loud alert sound with a Test button, and launch at login.
 
 ### Ignored CI sources
 
@@ -102,8 +102,8 @@ The chart button in the review queue's header opens a Review statistics window w
 <img width="100%" alt="Review statistics window" src="docs/images/stats.png" />
 </p>
 
-- **Heatmap**: a GitHub-style grid of your reviews per day over the last 52 weeks and the current one, Sunday to Saturday, with a five-step green scale set by the quartiles of your busy days. Hover a day for its count; days in the selected period are outlined.
-- **Period**: Week, Month (the default), Quarter or Year, as calendar periods you can step back through (never into the future, nor past the year of kept history).
+- **Graph**: your reviews per day in the selected period only, headed `N reviews in <period>`. Sprint, Week and Month show a calendar of large numbered days in week rows; Quarter and Year show a GitHub-style heatmap of small cells with month labels. Weeks start on your calendar's first weekday, future days are outlined and empty, and hovering a day shows its count. The five-step green scale comes from the quartiles of your busy days across the whole kept history, so a shade means the same in every period.
+- **Period**: Sprint, Week, Month, Quarter or Year, which you can step back through (never into the future, nor past the year of kept history). Sprint appears once you are signed in to Linear and have chosen a sprint team in Settings › General: it follows that team's Linear cycles, shown as e.g. `Cycle 42 · 19 Nov – 2 Dec`, and is the default while a cycle is running; otherwise the window opens on Month. Cycles are fetched from Linear's MCP server each time the window opens; if that fails, Sprint is hidden and a note says why.
 - **Metrics**: reviews done (each PR counts once per day you approve, request changes or comment on it), PRs approved, PRs with changes requested, and average time to respond. Response time runs from the later of the PR becoming ready for review and your review being requested to your first review of it, and is counted in the period of that first review. Reviews on your own PRs, bot reviews, and dismissed or pending reviews never count.
 - **Benchmark**: each metric shows the median and your rank among your chosen teams' members, counting only reviews in the teams' repos. Teammates with no reviews in the period count as zero; anyone without a timed first review is left out of response-time ranking. **Show leaderboard** (off by default, remembered in Settings) lists everyone by name, sortable by any column, with your row highlighted.
 

@@ -429,7 +429,8 @@ func nextLink(_ header: String?) -> URL? {
     return nil
 }
 
-func unique<T: Hashable>(_ items: [T]) -> [T] {
+/// `items` without repeats, keeping each first occurrence in order.
+public func unique<T: Hashable>(_ items: [T]) -> [T] {
     var seen = Set<T>()
     return items.filter { seen.insert($0).inserted }
 }

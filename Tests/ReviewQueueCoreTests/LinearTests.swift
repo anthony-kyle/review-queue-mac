@@ -103,10 +103,12 @@ private actor CallLog {
     }
 }
 
-@Test func diffToolIsFoundByNameEvenWhenRenamed() {
-    #expect(diffToolName(in: ["get_issue", "list_diffs", "list_pull_request_diffs"]) == "list_diffs")
-    #expect(diffToolName(in: ["get_issue", "list_pull_request_diffs"]) == "list_pull_request_diffs")
-    #expect(diffToolName(in: ["get_issue", "list_issues"]) == nil)
+@Test func toolsAreFoundByNameEvenWhenRenamed() {
+    #expect(LinearTool.diffs.resolved(in: ["get_issue", "list_diffs", "list_pull_request_diffs"]) == "list_diffs")
+    #expect(LinearTool.diffs.resolved(in: ["get_issue", "list_pull_request_diffs"]) == "list_pull_request_diffs")
+    #expect(LinearTool.diffs.resolved(in: ["get_issue", "list_issues"]) == nil)
+    #expect(LinearTool.cycles.resolved(in: ["list_teams", "list_cycles"]) == "list_cycles")
+    #expect(LinearTool.teams.resolved(in: ["list_my_teams", "list_cycles"]) == "list_my_teams")
 }
 
 @Test func reviewLinksOpenTheReviewTab() {

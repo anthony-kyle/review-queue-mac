@@ -2,14 +2,15 @@ import Foundation
 
 private let countedStates: Set<String> = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"]
 
-/// The calendar span the statistics cover.
+/// The span the statistics cover: a calendar period, or a Linear cycle of the chosen sprint team.
 public enum StatsPeriod: String, CaseIterable, Identifiable, Sendable {
-    case week, month, quarter, year
+    case sprint, week, month, quarter, year
 
     public var id: String { rawValue }
 
     public var label: String {
         switch self {
+        case .sprint: "Sprint"
         case .week: "Week"
         case .month: "Month"
         case .quarter: "Quarter"
@@ -19,19 +20,21 @@ public enum StatsPeriod: String, CaseIterable, Identifiable, Sendable {
 }
 
 /// The calendar `period` holding `date`, moved `offset` periods (negative is earlier). Weeks start on `calendar`'s first
-/// weekday; quarters start in January, April, July and October.
-public func periodInterval(_ period: StatsPeriod, offset: Int = 0, containing date: Date, calendar: Calendar) -> DateInterval {
-    let (component, length): (Calendar.Component, Int) = switch period {
-    case .week: (.weekOfYear, 1)
-    case .month: (.month, 1)
-    case .quarter: (.month, 3)
-    case .year: (.year, 1)
+/// weekday; quarters start in January, April, July and October. Nil for Sprint, which follows Linear's cycles instead.
+public func periodInterval(_ period: StatsPeriod, offset: Int = 0, containing date: Date, calendar: Calendar) -> DateInterval? {
+    let (component, length): (Calendar.Component, Int)
+    switch period {
+    case .sprint: return nil
+    case .week: (component, length) = (.weekOfYear, 1)
+    case .month: (component, length) = (.month, 1)
+    case .quarter: (component, length) = (.month, 3)
+    case .year: (component, length) = (.year, 1)
     }
     let start: Date
     switch period {
     case .week: start = calendar.dateInterval(of: .weekOfYear, for: date)?.start ?? date
     case .year: start = calendar.dateInterval(of: .year, for: date)?.start ?? date
-    case .month, .quarter:
+    case .sprint, .month, .quarter:
         let month = calendar.dateInterval(of: .month, for: date)?.start ?? date
         let intoQuarter = period == .quarter ? (calendar.component(.month, from: month) - 1) % 3 : 0
         start = calendar.date(byAdding: .month, value: -intoQuarter, to: month) ?? month
@@ -206,66 +209,92 @@ public func rankText(_ rank: Int, of count: Int) -> String {
     return "\(rank)\(suffix) of \(count)"
 }
 
-/// One day in the heatmap.
-public struct HeatmapCell: Equatable, Sendable {
+/// One day of the period graph. Future days have no count and level 0.
+public struct GraphDay: Equatable, Sendable {
     public let date: Date
     public let count: Int
     public let level: Int
+    public let isFuture: Bool
 }
 
-/// A month name over the first heatmap column whose week starts in that month.
-public struct HeatmapMonth: Equatable, Sendable {
+/// A month name over the first graph column whose first day in the period falls in that month.
+public struct GraphMonth: Equatable, Sendable {
     public let column: Int
     public let name: String
 }
 
-/// A GitHub-style year of days: columns are weeks from Sunday to Saturday, the last one running up to today; days after
-/// today are nil. Levels run 0 (no reviews) to 4.
-public struct Heatmap: Equatable, Sendable {
-    public static let weeks = 53
+/// How a period graph is drawn: a calendar of large day cells in week rows (Sprint, Week, Month), or a GitHub-style
+/// heatmap of small cells in week columns (Quarter, Year).
+public enum GraphStyle: Equatable, Sendable {
+    case calendar, heatmap
 
-    public let columns: [[HeatmapCell?]]
-    public let months: [HeatmapMonth]
+    public init(_ period: StatsPeriod) {
+        self = period == .quarter || period == .year ? .heatmap : .calendar
+    }
+}
+
+/// The selected period's days laid out by week. Each week has seven slots in `calendar`'s weekday order; a nil slot is a
+/// day outside the period. For the calendar style weeks are rows; for the heatmap they are columns, labelled by
+/// `months`. `weekdays` names the slots, and `total` sums the period's days up to today.
+public struct PeriodGraph: Equatable, Sendable {
+    public let style: GraphStyle
+    public let weeks: [[GraphDay?]]
+    public let weekdays: [String]
+    public let months: [GraphMonth]
     public let total: Int
 }
 
-/// The first day the heatmap shows, and so the start of what the history keeps: the Sunday 52 weeks before the one
-/// that starts today's week.
-public func heatmapStart(today: Date, calendar: Calendar) -> Date {
-    let sundays = sundayFirst(calendar)
-    let week = sundays.dateInterval(of: .weekOfYear, for: today)?.start ?? sundays.startOfDay(for: today)
-    return sundays.date(byAdding: .weekOfYear, value: -(Heatmap.weeks - 1), to: week) ?? week
+private let keptWeeks = 53
+
+/// The first day the history keeps: the start of the week 52 weeks before the one holding `today`.
+public func historyStart(today: Date, calendar: Calendar) -> Date {
+    let week = calendar.dateInterval(of: .weekOfYear, for: today)?.start ?? calendar.startOfDay(for: today)
+    return calendar.date(byAdding: .weekOfYear, value: -(keptWeeks - 1), to: week) ?? week
 }
 
-/// Lays `counts` (keyed by start of day) out as the heatmap ending today.
-public func heatmap(_ counts: [Date: Int], today: Date, calendar: Calendar) -> Heatmap {
-    let sundays = sundayFirst(calendar)
-    let start = heatmapStart(today: today, calendar: calendar)
-    let last = sundays.startOfDay(for: today)
-    let days = (0..<(Heatmap.weeks * 7)).map { sundays.date(byAdding: .day, value: $0, to: start) ?? start }
-    let shown = days.filter { $0 <= last }
-    let thresholds = heatmapThresholds(shown.map { counts[$0] ?? 0 })
-    let cells: [HeatmapCell?] = days.map { day in
-        guard day <= last else { return nil }
-        let count = counts[day] ?? 0
-        return HeatmapCell(date: day, count: count, level: heatmapLevel(count, thresholds: thresholds))
+/// Lays the days of `interval` out in whole weeks, with `counts` (keyed by start of day) shaded on `thresholds`. A
+/// period starting mid-day, like a Linear cycle, includes that day; one ending at midnight excludes the next.
+public func periodGraph(
+    _ interval: DateInterval,
+    style: GraphStyle,
+    counts: [Date: Int],
+    thresholds: [Int],
+    today: Date,
+    calendar: Calendar
+) -> PeriodGraph {
+    let first = calendar.startOfDay(for: interval.start)
+    let last = calendar.startOfDay(for: max(interval.start, interval.end.addingTimeInterval(-1)))
+    let todayStart = calendar.startOfDay(for: today)
+    let firstWeek = calendar.dateInterval(of: .weekOfYear, for: first)?.start ?? first
+    var weeks: [[GraphDay?]] = []
+    var weekStart = firstWeek
+    while weekStart <= last {
+        weeks.append((0..<7).map { offset in
+            guard let day = calendar.date(byAdding: .day, value: offset, to: weekStart), day >= first, day <= last else { return nil }
+            let isFuture = day > todayStart
+            let count = isFuture ? 0 : counts[day] ?? 0
+            return GraphDay(date: day, count: count, level: heatmapLevel(count, thresholds: thresholds), isFuture: isFuture)
+        })
+        guard let next = calendar.date(byAdding: .weekOfYear, value: 1, to: weekStart) else { break }
+        weekStart = next
     }
-    let columns = stride(from: 0, to: cells.count, by: 7).map { Array(cells[$0..<$0 + 7]) }
-    let weekStarts = stride(from: 0, to: days.count, by: 7).map { days[$0] }
-    return Heatmap(
-        columns: columns,
-        months: heatmapMonths(weekStarts, calendar: sundays),
-        total: shown.reduce(0) { $0 + (counts[$1] ?? 0) }
+    let symbols = calendar.shortWeekdaySymbols
+    return PeriodGraph(
+        style: style,
+        weeks: weeks,
+        weekdays: (0..<7).map { symbols[(calendar.firstWeekday - 1 + $0) % 7] },
+        months: style == .heatmap ? graphMonths(weeks.map { $0.compactMap(\.self).first?.date }, calendar: calendar) : [],
+        total: weeks.joined().compactMap(\.self).reduce(0) { $0 + $1.count }
     )
 }
 
-/// Labels each column whose week starts in a different month from the column before; the first column is labelled
-/// only when the next label is at least three columns away, so the two never overlap.
-func heatmapMonths(_ weekStarts: [Date], calendar: Calendar) -> [HeatmapMonth] {
-    let months = weekStarts.map { calendar.component(.month, from: $0) }
-    var labels = months.indices.filter { $0 > 0 && months[$0] != months[$0 - 1] }
-    if !months.isEmpty, (labels.first ?? Int.max) >= 3 { labels.insert(0, at: 0) }
-    return labels.map { HeatmapMonth(column: $0, name: calendar.shortMonthSymbols[months[$0] - 1]) }
+/// Labels each column whose first day in the period falls in a different month from the column before; the first
+/// column is labelled only when the next label is at least three columns away, so the two never overlap.
+func graphMonths(_ firstDays: [Date?], calendar: Calendar) -> [GraphMonth] {
+    let months = firstDays.map { $0.map { calendar.component(.month, from: $0) } ?? 0 }
+    var labels = months.indices.filter { $0 > 0 && months[$0] != months[$0 - 1] && months[$0] > 0 }
+    if months.first.map({ $0 > 0 }) == true, (labels.first ?? Int.max) >= 3 { labels.insert(0, at: 0) }
+    return labels.map { GraphMonth(column: $0, name: calendar.shortMonthSymbols[months[$0] - 1]) }
 }
 
 /// The upper bounds of levels 1 to 3: the quartiles of the nonzero counts, by nearest rank. Empty when no day has
@@ -281,31 +310,52 @@ func heatmapLevel(_ count: Int, thresholds: [Int]) -> Int {
     count == 0 ? 0 : 1 + thresholds.filter { count > $0 }.count
 }
 
-private func sundayFirst(_ calendar: Calendar) -> Calendar {
-    var sundays = calendar
-    sundays.firstWeekday = 1
-    return sundays
+/// The span a period and offset land on, the cycle behind it for Sprint, and whether it can step either way.
+public struct PeriodSpan: Equatable, Sendable {
+    public let interval: DateInterval
+    public let cycle: LinearCycle?
+    public let canGoBack: Bool
+    public let canGoForward: Bool
 }
 
-/// Everything the statistics window shows for one period: the year heatmap, and every cohort member's stats for the
-/// period, where the cohort is the teams' human members plus you. Members and you come from the history, so a cached
+/// The span `offset` steps back from the current one (positive offsets are clamped to now). Calendar periods step until
+/// they would start before the kept history. Sprint steps through `cycles` that have started and start within the kept
+/// history, from the latest one; with no such cycle it falls back to the month.
+public func periodSpan(_ period: StatsPeriod, offset: Int, cycles: [LinearCycle], now: Date, calendar: Calendar) -> PeriodSpan {
+    let start = historyStart(today: now, calendar: calendar)
+    let steps = min(offset, 0)
+    let reachable = reachableCycles(cycles, now: now, start: start)
+    if period == .sprint, let latest = reachable.indices.last {
+        let index = max(0, latest + steps)
+        let cycle = reachable[index]
+        return PeriodSpan(interval: cycle.interval, cycle: cycle, canGoBack: index > 0, canGoForward: index < latest)
+    }
+    let calendarPeriod = period == .sprint ? StatsPeriod.month : period
+    let interval = periodInterval(calendarPeriod, offset: steps, containing: now, calendar: calendar) ?? DateInterval(start: now, duration: 0)
+    return PeriodSpan(interval: interval, cycle: nil, canGoBack: interval.start > start, canGoForward: steps < 0)
+}
+
+/// Everything the statistics window shows for one period: your reviews in it as a graph, shaded on the quartiles of
+/// your whole kept history so a shade means the same in every period, and every cohort member's stats for the period,
+/// where the cohort is the teams' human members plus you. Members and you come from the history, so a cached
 /// history renders the same before any refresh.
 public struct StatsReport: Equatable, Sendable {
     public let me: String?
-    public let interval: DateInterval
-    public let heatmap: Heatmap
+    public let span: PeriodSpan
+    public let graph: PeriodGraph
     public let rows: [ReviewerStats]
-    public let canGoBack: Bool
 
-    public init(history: ReviewHistory, period: StatsPeriod, offset: Int, now: Date, calendar: Calendar) {
+    public init(history: ReviewHistory, period: StatsPeriod, offset: Int, cycles: [LinearCycle] = [], now: Date, calendar: Calendar) {
         me = history.me
-        interval = periodInterval(period, offset: offset, containing: now, calendar: calendar)
+        span = periodSpan(period, offset: offset, cycles: cycles, now: now, calendar: calendar)
         let counts = history.me.map { dailyReviewCounts(history.prs, reviewer: $0, calendar: calendar) } ?? [:]
-        heatmap = ReviewQueueCore.heatmap(counts, today: now, calendar: calendar)
+        let style = GraphStyle(period)
+        graph = periodGraph(span.interval, style: style, counts: counts, thresholds: heatmapThresholds(Array(counts.values)), today: now, calendar: calendar)
         let cohort = unique(history.members + (history.me.map { [$0] } ?? [])).filter { !$0.hasSuffix("[bot]") }
-        rows = reviewerStats(history.prs, in: interval, reviewers: cohort, calendar: calendar)
-        canGoBack = interval.start > heatmapStart(today: now, calendar: calendar)
+        rows = reviewerStats(history.prs, in: span.interval, reviewers: cohort, calendar: calendar)
     }
+
+    public var interval: DateInterval { span.interval }
 
     public var mine: ReviewerStats? { rows.first { $0.login == me } }
 

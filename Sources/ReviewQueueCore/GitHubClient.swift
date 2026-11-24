@@ -173,7 +173,7 @@ public actor GitHubClient {
     ) async throws -> HistoryFetchResult {
         let me = try await viewerLogin()
         let (repos, members) = try await teamScope(teams, access: access)
-        let start = heatmapStart(today: now, calendar: calendar)
+        let start = historyStart(today: now, calendar: calendar)
         let names = repos.map(\.fullName)
         var history = cached.pruned(repos: Set(names), start: start)
         history.me = me

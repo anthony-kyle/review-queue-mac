@@ -25,7 +25,7 @@ import Testing
         var auckland = utc()
         auckland.timeZone = TimeZone(identifier: "Pacific/Auckland")!
         let lateUtc = at("2026-11-30T12:00:00Z")
-        #expect(periodInterval(.month, containing: lateUtc, calendar: auckland).start == at("2026-11-30T11:00:00Z"))
+        #expect(periodInterval(.month, containing: lateUtc, calendar: auckland)?.start == at("2026-11-30T11:00:00Z"))
         let pr = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: lateUtc, updatedAt: lateUtc, reviews: [
             review("me", "COMMENTED", "2026-11-30T10:00:00Z"),
             review("me", "COMMENTED", "2026-11-30T12:00:00Z"),
@@ -166,30 +166,6 @@ import Testing
         #expect(heatmapLevel(3, thresholds: heatmapThresholds([3, 3, 3])) == 1)
     }
 
-    @Test func heatmapRunsFiftyThreeSundayWeeksUpToToday() {
-        let calendar = utc(firstWeekday: 2)
-        let today = at("2026-11-25T15:00:00Z")
-        let counts = [at("2026-11-25T00:00:00Z"): 2, at("2025-11-23T00:00:00Z"): 1, at("2025-11-22T00:00:00Z"): 9]
-        let map = heatmap(counts, today: today, calendar: calendar)
-        #expect(heatmapStart(today: today, calendar: calendar) == at("2025-11-23T00:00:00Z"))
-        #expect(map.columns.count == 53)
-        #expect(map.columns.allSatisfy { $0.count == 7 })
-        #expect(map.columns.first?.first??.date == at("2025-11-23T00:00:00Z"))
-        #expect(map.columns.first?.first??.count == 1)
-        #expect(map.columns.last?.map { $0?.count } == [0, 0, 0, 2, nil, nil, nil])
-        #expect(map.total == 3)
-    }
-
-    @Test func monthLabelsMarkTheFirstWeekOfEachMonth() {
-        let calendar = utc()
-        let map = heatmap([:], today: at("2026-11-25T15:00:00Z"), calendar: calendar)
-        #expect(map.months.map(\.column) == [2, 6, 10, 14, 19, 23, 28, 32, 36, 41, 45, 49])
-        #expect(map.months.map(\.name).prefix(3) == ["Dec", "Jan", "Feb"])
-        let weeks = [at("2026-01-11T00:00:00Z"), at("2026-01-18T00:00:00Z"), at("2026-01-25T00:00:00Z"), at("2026-02-01T00:00:00Z")]
-        #expect(heatmapMonths(weeks, calendar: calendar) == [HeatmapMonth(column: 0, name: "Jan"), HeatmapMonth(column: 3, name: "Feb")])
-        #expect(heatmapMonths(Array(weeks.dropFirst()), calendar: calendar) == [HeatmapMonth(column: 2, name: "Feb")])
-    }
-
     @Test func reportBenchmarksAgainstEveryTeamMemberIncludingIdleOnes() {
         let history = ReviewHistory(me: "me", members: ["me", "ana", "bo", "dependabot[bot]"], prs: [
             pr(1, reviews: [review("me", "APPROVED", "2026-11-02T09:00:00Z"), review("ana", "APPROVED", "2026-11-02T10:00:00Z")]),
@@ -200,9 +176,9 @@ import Testing
         #expect(report.mine?.reviews == 1)
         #expect(report.benchmark(.reviews) == Benchmark(median: 1, rank: 2, cohort: 3))
         #expect(report.benchmark(.response).cohort == 2)
-        #expect(report.heatmap.total == 1)
-        #expect(report.canGoBack)
-        #expect(!StatsReport(history: history, period: .year, offset: -1, now: at("2026-11-25T15:00:00Z"), calendar: utc()).canGoBack)
+        #expect(report.graph.total == 1)
+        #expect(report.span.canGoBack)
+        #expect(!StatsReport(history: history, period: .year, offset: -1, now: at("2026-11-25T15:00:00Z"), calendar: utc()).span.canGoBack)
     }
 
     private var november: DateInterval { span("2026-11-01", "2026-12-01") }

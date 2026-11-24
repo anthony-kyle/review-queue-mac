@@ -13,22 +13,32 @@ struct StatsView: View {
             StatsContent(model: model)
         }
         .frame(minWidth: StatsContent.width, minHeight: 560)
-        .onAppear { model.refreshHistoryIfStale() }
+        .onAppear {
+            model.refreshHistoryIfStale()
+            model.refreshSprintCycles()
+        }
     }
 }
 
-/// Header with refresh and progress, last year's heatmap, the period picker, your metrics against the team's, and the
-/// leaderboard when it is switched on. The period starts at this month whenever the window opens.
+/// Header with refresh and progress, the selected period's graph, the period picker, your metrics against the team's, and the
+/// leaderboard when it is switched on. Until a period is picked it follows the default: Sprint while it is offered and a
+/// cycle is running, else Month, so it switches to Sprint once cycles arrive. Sprint is only listed while offered.
 struct StatsContent: View {
     static let width: CGFloat = 900
 
     let model: AppModel
-    @State private var period = StatsPeriod.month
+    @State private var picked: StatsPeriod?
     @State private var offset = 0
 
     var body: some View {
         let calendar = Calendar.current
-        let report = StatsReport(history: model.history, period: period, offset: offset, now: Date(), calendar: calendar)
+        let now = Date()
+        let isSprintOffered = model.isSprintOffered
+        let cycles = isSprintOffered ? model.sprintCycles : []
+        let fallback = defaultPeriod(isSprintOffered: isSprintOffered, cycles: cycles, now: now)
+        let period = picked.flatMap { $0 != .sprint || isSprintOffered ? $0 : nil } ?? fallback
+        let report = StatsReport(history: model.history, period: period, offset: offset, cycles: cycles, now: now, calendar: calendar)
+        let title = periodTitle(report.span, period: period, calendar: calendar)
         VStack(alignment: .leading, spacing: 22) {
             header
             if model.settings.teams.isEmpty {
@@ -37,8 +47,11 @@ struct StatsContent: View {
             if !model.isHistoryLoading, let note = model.historyNote {
                 ErrorBanner(message: "GitHub: \(note)", color: .orange)
             }
-            HeatmapView(heatmap: report.heatmap, highlighted: report.interval, calendar: calendar)
-            periodBar(report, calendar: calendar)
+            PeriodGraphView(graph: report.graph, title: title, calendar: calendar)
+            periodBar(report, period: period, title: title, isSprintOffered: isSprintOffered)
+            if model.settings.sprintTeam != nil, let note = model.sprintNote {
+                Text(note).font(.caption).foregroundStyle(.secondary)
+            }
             HStack(alignment: .top, spacing: 12) {
                 ForEach(StatsMetric.allCases) { metric in
                     MetricCard(metric: metric, mine: report.mine, benchmark: report.benchmark(metric))
@@ -53,6 +66,7 @@ struct StatsContent: View {
             }
         }
         .padding(24)
+        .onChange(of: isSprintOffered) { offset = 0 }
         .frame(minWidth: Self.width, alignment: .leading)
         .fixedSize(horizontal: false, vertical: true)
     }
@@ -79,34 +93,36 @@ struct StatsContent: View {
         return "Your teams' repos · updated \(clockTime(completedAt))"
     }
 
-    private func periodBar(_ report: StatsReport, calendar: Calendar) -> some View {
+    private func periodBar(_ report: StatsReport, period: StatsPeriod, title: String, isSprintOffered: Bool) -> some View {
         HStack(spacing: 10) {
-            Picker("Period", selection: $period) {
-                ForEach(StatsPeriod.allCases) { Text($0.label).tag($0) }
+            Picker("Period", selection: Binding(get: { period }, set: { picked = $0; offset = 0 })) {
+                ForEach(StatsPeriod.allCases.filter { $0 != .sprint || isSprintOffered }) { Text($0.label).tag($0) }
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: 320)
-            .onChange(of: period) { offset = 0 }
+            .frame(width: isSprintOffered ? 400 : 320)
             Spacer()
             IconButton(symbol: "chevron.left", help: "Previous \(period.label.lowercased())") { offset -= 1 }
-                .disabled(!report.canGoBack)
-            Text(periodTitle(report.interval, calendar: calendar))
+                .disabled(!report.span.canGoBack)
+            Text(title)
                 .font(.headline)
                 .monospacedDigit()
                 .frame(minWidth: 190)
             IconButton(symbol: "chevron.right", help: "Next \(period.label.lowercased())") { offset += 1 }
-                .disabled(offset >= 0)
+                .disabled(!report.span.canGoForward)
         }
     }
 
-    private func periodTitle(_ interval: DateInterval, calendar: Calendar) -> String {
-        let start = interval.start
+    private func periodTitle(_ span: PeriodSpan, period: StatsPeriod, calendar: Calendar) -> String {
+        let start = span.interval.start
+        let last = calendar.date(byAdding: .day, value: -1, to: span.interval.end) ?? start
+        if let cycle = span.cycle {
+            return "\(cycle.title) · \((start..<max(start, last)).formatted(.interval.day().month(.abbreviated)))"
+        }
         switch period {
         case .week:
-            let last = calendar.date(byAdding: .day, value: -1, to: interval.end) ?? start
             return "\(start.formatted(.dateTime.day().month(.abbreviated))) – \(last.formatted(.dateTime.day().month(.abbreviated).year()))"
-        case .month:
+        case .sprint, .month:
             return start.formatted(.dateTime.month(.wide).year())
         case .quarter:
             return "Q\((calendar.component(.month, from: start) - 1) / 3 + 1) \(start.formatted(.dateTime.year()))"
@@ -134,18 +150,24 @@ private struct IconButton: View {
     }
 }
 
-/// GitHub's contribution grid for your reviews: week columns from Sunday to Saturday with Mon, Wed and Fri labelled,
-/// month names on top, a five-step green scale and a legend. Days in the selected period are outlined, and hovering a
-/// day shows its count beside the total.
-private struct HeatmapView: View {
-    private static let cell: CGFloat = 12
+/// Your reviews over the selected period: the period's total and the hovered day's count, the days as a calendar of
+/// large numbered cells (Sprint, Week, Month) or a heatmap of small cells with month labels (Quarter, Year), and the
+/// Less/More legend. Future days are outlined and empty; days outside the period are blank. Cell sizes come from the
+/// window's minimum content width, never from a measurement, so the graph can't feed back into the window's size.
+private struct PeriodGraphView: View {
     private static let gap: CGFloat = 3
+    private static let width = StatsContent.width - 48
+    private static let rowLabelWidth: CGFloat = 30
+    private static let dayWidth: CGFloat = 112
+    private static let dayHeight: CGFloat = 58
+    private static let heatmapCell: CGFloat = 18
+    private static let swatch: CGFloat = 12
     private static let monthRow: CGFloat = 14
 
-    let heatmap: Heatmap
-    let highlighted: DateInterval
+    let graph: PeriodGraph
+    let title: String
     let calendar: Calendar
-    @State private var hovered: HeatmapCell?
+    @State private var hovered: GraphDay?
     @Environment(\.colorScheme) private var colorScheme
 
     private var isDark: Bool { colorScheme == .dark }
@@ -153,7 +175,7 @@ private struct HeatmapView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline) {
-                Text("\(counted(heatmap.total, "review")) in the last year").font(.headline)
+                Text("\(counted(graph.total, "review")) in \(title)").font(.headline)
                 Spacer()
                 if let hovered {
                     Text("\(counted(hovered.count, "review")) on \(hovered.date.formatted(date: .long, time: .omitted))")
@@ -162,65 +184,123 @@ private struct HeatmapView: View {
                         .monospacedDigit()
                 }
             }
-            HStack(alignment: .top, spacing: 6) {
-                weekdays.padding(.top, Self.monthRow + 4)
-                VStack(alignment: .leading, spacing: 4) {
-                    months
-                    grid
-                    legend
+            switch graph.style {
+            case .calendar: calendarGrid
+            case .heatmap: heatmap
+            }
+            legend
+        }
+    }
+
+    private var calendarGrid: some View {
+        VStack(alignment: .leading, spacing: Self.gap) {
+            HStack(spacing: Self.gap) {
+                ForEach(graph.weekdays.indices, id: \.self) { index in
+                    Text(graph.weekdays[index])
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: Self.dayWidth, alignment: .leading)
+                        .padding(.leading, 6)
                 }
             }
-        }
-    }
-
-    private var weekdays: some View {
-        let symbols = calendar.shortWeekdaySymbols
-        return VStack(alignment: .trailing, spacing: Self.gap) {
-            ForEach(0..<7, id: \.self) { row in
-                Text(row % 2 == 1 ? symbols[row] : "")
-                    .frame(height: Self.cell)
-            }
-        }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-    }
-
-    private var months: some View {
-        ZStack(alignment: .topLeading) {
-            ForEach(heatmap.months, id: \.column) { month in
-                Text(month.name).offset(x: CGFloat(month.column) * (Self.cell + Self.gap))
-            }
-        }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .frame(maxWidth: .infinity, minHeight: Self.monthRow, alignment: .topLeading)
-    }
-
-    /// Every day drawn in one Canvas rather than 371 views; hovering reads the day under the pointer from its position.
-    private var grid: some View {
-        let step = Self.cell + Self.gap
-        let columns = heatmap.columns
-        let isDark = isDark
-        return Canvas { context, _ in
-            for (column, days) in columns.enumerated() {
-                for (row, day) in days.enumerated() {
-                    guard let day else { continue }
-                    let rect = CGRect(x: CGFloat(column) * step, y: CGFloat(row) * step, width: Self.cell, height: Self.cell)
-                    let shape = Path(roundedRect: rect, cornerRadius: 2.5, style: .continuous)
-                    context.fill(shape, with: .color(.heatmap(day.level, isDark: isDark)))
-                    if highlighted.holds(day.date) {
-                        context.stroke(Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 2.5, style: .continuous), with: .color(.primary.opacity(0.55)), lineWidth: 1)
+            ForEach(graph.weeks.indices, id: \.self) { week in
+                HStack(spacing: Self.gap) {
+                    ForEach(0..<7, id: \.self) { slot in
+                        calendarDay(graph.weeks[week][slot])
                     }
                 }
             }
         }
-        .frame(width: CGFloat(columns.count) * step - Self.gap, height: 7 * step - Self.gap)
+    }
+
+    @ViewBuilder private func calendarDay(_ day: GraphDay?) -> some View {
+        if let day {
+            VStack(alignment: .leading) {
+                Text("\(calendar.component(.day, from: day.date))").font(.caption).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                if day.count > 0 {
+                    Text("\(day.count)").font(.title3.weight(.semibold)).monospacedDigit()
+                }
+            }
+            .padding(6)
+            .frame(maxWidth: Self.dayWidth, maxHeight: .infinity, alignment: .topLeading)
+            .frame(height: Self.dayHeight)
+            .background(dayShape(day))
+            .contentShape(Rectangle())
+            .onHover { isInside in hovered = isInside && !day.isFuture ? day : nil }
+        } else {
+            Color.clear.frame(maxWidth: Self.dayWidth).frame(height: Self.dayHeight)
+        }
+    }
+
+    @ViewBuilder private func dayShape(_ day: GraphDay) -> some View {
+        let shape = RoundedRectangle(cornerRadius: 6, style: .continuous)
+        if day.isFuture {
+            shape.strokeBorder(.secondary.opacity(0.5), lineWidth: 1)
+        } else {
+            shape.fill(Color.heatmap(day.level, isDark: isDark))
+        }
+    }
+
+    private var heatmapCellSize: CGFloat {
+        let columns = CGFloat(max(graph.weeks.count, 1))
+        let fit = ((Self.width - Self.rowLabelWidth - 6) / columns).rounded(.down) - Self.gap
+        return min(Self.heatmapCell, max(fit, 6))
+    }
+
+    private var heatmap: some View {
+        let cell = heatmapCellSize
+        let step = cell + Self.gap
+        return HStack(alignment: .top, spacing: 6) {
+            VStack(alignment: .trailing, spacing: Self.gap) {
+                ForEach(0..<7, id: \.self) { row in
+                    Text(row % 2 == 1 ? graph.weekdays[row] : "").frame(height: cell)
+                }
+            }
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .frame(width: Self.rowLabelWidth, alignment: .trailing)
+            .padding(.top, Self.monthRow + 4)
+            VStack(alignment: .leading, spacing: 4) {
+                ZStack(alignment: .topLeading) {
+                    ForEach(graph.months, id: \.column) { month in
+                        Text(month.name).offset(x: CGFloat(month.column) * step)
+                    }
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .frame(width: CGFloat(graph.weeks.count) * step, height: Self.monthRow, alignment: .topLeading)
+                heatmapCanvas(cell: cell, step: step)
+            }
+        }
+    }
+
+    /// Every day drawn in one Canvas rather than a view per day; hovering reads the day under the pointer from its
+    /// position.
+    private func heatmapCanvas(cell: CGFloat, step: CGFloat) -> some View {
+        let weeks = graph.weeks
+        let isDark = isDark
+        return Canvas { context, _ in
+            for (column, days) in weeks.enumerated() {
+                for (row, day) in days.enumerated() {
+                    guard let day else { continue }
+                    let rect = CGRect(x: CGFloat(column) * step, y: CGFloat(row) * step, width: cell, height: cell)
+                    if day.isFuture {
+                        context.stroke(Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: 2.5, style: .continuous), with: .color(.secondary.opacity(0.5)), lineWidth: 1)
+                    } else {
+                        context.fill(Path(roundedRect: rect, cornerRadius: 2.5, style: .continuous), with: .color(.heatmap(day.level, isDark: isDark)))
+                    }
+                }
+            }
+        }
+        .frame(width: CGFloat(weeks.count) * step - Self.gap, height: 7 * step - Self.gap)
         .onContinuousHover { phase in
             guard case let .active(point) = phase else { return hovered = nil }
             let column = Int(point.x / step)
             let row = Int(point.y / step)
-            let isOnCell = point.x.truncatingRemainder(dividingBy: step) < Self.cell && point.y.truncatingRemainder(dividingBy: step) < Self.cell
-            hovered = isOnCell && columns.indices.contains(column) && (0..<7).contains(row) ? columns[column][row] : nil
+            let isOnCell = point.x.truncatingRemainder(dividingBy: step) < cell && point.y.truncatingRemainder(dividingBy: step) < cell
+            let day = isOnCell && weeks.indices.contains(column) && (0..<7).contains(row) ? weeks[column][row] : nil
+            hovered = day?.isFuture == false ? day : nil
         }
     }
 
@@ -231,13 +311,12 @@ private struct HeatmapView: View {
             ForEach(0..<5, id: \.self) { level in
                 RoundedRectangle(cornerRadius: 2.5, style: .continuous)
                     .fill(Color.heatmap(level, isDark: isDark))
-                    .frame(width: Self.cell, height: Self.cell)
+                    .frame(width: Self.swatch, height: Self.swatch)
             }
             Text("More").padding(.leading, 3)
         }
         .font(.caption)
         .foregroundStyle(.secondary)
-        .padding(.top, 4)
     }
 }
 

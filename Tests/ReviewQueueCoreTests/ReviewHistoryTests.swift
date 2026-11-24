@@ -103,13 +103,14 @@ import Testing
         #expect(!settings.isLeaderboardShown)
     }
 
-    @Test func demoHistoryFillsTheHeatmapAndEveryTeammatesRow() {
+    @Test func demoHistoryFillsTheGraphAndEveryTeammatesRow() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let demo = DemoData(now: now)
         let report = StatsReport(history: demo.reviewHistory, period: .month, offset: 0, now: now, calendar: .current)
         #expect(report.rows.count == 8)
         #expect(report.rows.allSatisfy { $0.reviews > 0 })
-        #expect(report.heatmap.total > 150)
+        #expect(report.graph.total > 0)
+        #expect(StatsReport(history: demo.reviewHistory, period: .year, offset: -1, now: now, calendar: .current).graph.total > 150)
         #expect(report.mine?.averageResponse != nil)
         #expect(demo.reviewHistory.prs.allSatisfy { $0.number < 1000 && $0.updatedAt <= now })
         #expect(DemoData(now: now).reviewHistory == demo.reviewHistory)

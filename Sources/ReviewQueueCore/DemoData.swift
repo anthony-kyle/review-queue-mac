@@ -6,6 +6,11 @@ public struct DemoData: Sendable {
     public static let me = "you"
     public static let owner = "acme"
     public static let linearWorkspace = "acme"
+    public static let linearTeams = [
+        LinearTeam(id: "team-mobile", key: "MOB", name: "Mobile"),
+        LinearTeam(id: "team-platform", key: "PLAT", name: "Platform"),
+        LinearTeam(id: "team-web", key: "WEB", name: "Web"),
+    ]
 
     public let settings: QueueSettings
     public let prs: [QueuePr]
@@ -14,19 +19,21 @@ public struct DemoData: Sendable {
     public let teams: [String]
     public let fetchedAt: Date
     public let reviewHistory: ReviewHistory
+    public let cycles: [LinearCycle]
 
     /// High priority holds a daily-group PR with others' approval and changes-request and one updated after your
     /// changes, which links the diff since your review and fails only a muted Vercel check; Needs review shows three PRs and hides two approved by others and one with changes requested by others.
     /// My PRs has two that need you, one ready to merge (behind main, which an approval outranks), one with reviewers,
     /// one behind main and a draft, plus one in an excluded repo; the bot's comment is from an ignored commenter, so CI
     /// alone puts its PR in Needs you. One ready PR keeps the menu within its scroll height. Review history covers a year
-/// for you and seven teammates, so the statistics window fills its heatmap, metrics and leaderboard.
+    /// for you and seven teammates, and the Web team's cycles make Sprint the statistics window's opening period.
     public init(now: Date) {
         let at = DemoClock(now: now)
         var settings = QueueSettings()
         settings.teams = ["acme/web-team", "acme/platform"]
         settings.highUsers = ["alex-morgan"]
         settings.linearWorkspace = Self.linearWorkspace
+        settings.sprintTeam = Self.linearTeams.last
         settings.myPrs.excludedRepos = ["acme/acme-db-migrations"]
         settings.myPrs.ignoredCommenters = ["datadog-official"]
         settings.ignoredCiSources = ["vercel"]
@@ -36,6 +43,7 @@ public struct DemoData: Sendable {
         teams = settings.teams + ["acme/mobile"]
         fetchedAt = at.date(minutesAgo: 2)
         reviewHistory = demoReviewHistory(now: now)
+        cycles = demoCycles(now: now)
         prs = [
             queuePr(
                 812, "acme-web", "feat(web): add CSV export to the invoice list", author: "alex-morgan", story: 1042,
@@ -206,6 +214,17 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
         prs: prs,
         completedAt: now.addingTimeInterval(-120)
     )
+}
+
+/// The Web team's two-week cycles, Linear style: cycle 42 started five days before `now`, with 30 before it and the
+/// next one already planned.
+private func demoCycles(now: Date) -> [LinearCycle] {
+    let current = Calendar.current.date(byAdding: .day, value: -5, to: Calendar.current.startOfDay(for: now)) ?? now
+    return (-30...1).map { step in
+        let start = Calendar.current.date(byAdding: .day, value: 14 * step, to: current) ?? current
+        let end = Calendar.current.date(byAdding: .day, value: 14, to: start) ?? start
+        return LinearCycle(id: "cycle-\(42 + step)", number: 42 + step, startsAt: start, endsAt: end)
+    }
 }
 
 /// SplitMix64, a tiny seeded generator, so demo history is identical on every run.

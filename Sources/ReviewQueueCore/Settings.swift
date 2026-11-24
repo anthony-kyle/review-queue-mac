@@ -22,13 +22,14 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     public var normalSound = "Glass"
     public var myPrs = MyPrsSettings()
     public var isLeaderboardShown = false
+    public var sprintTeam: LinearTeam?
 
     public init() {}
 
     enum CodingKeys: String, CodingKey {
         case intervalMinutes, teams, repoAccess, highUsers, lowUsers, hiddenDetails, blockPrefs, linearWorkspace, ignoredCiSources, allowedBotAuthors
         case notifyHigh, repeatHighReminders, notifyNeeds, notifyReviewRequested, highSound, normalSound, myPrs
-        case isLeaderboardShown
+        case isLeaderboardShown, sprintTeam
     }
 
     public init(from decoder: any Decoder) throws {
@@ -52,6 +53,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
         normalSound = try c.value(.normalSound, or: d.normalSound)
         myPrs = try c.value(.myPrs, or: d.myPrs)
         isLeaderboardShown = try c.value(.isLeaderboardShown, or: d.isLeaderboardShown)
+        sprintTeam = try c.value(.sprintTeam, or: d.sprintTeam)
     }
 
     public func people(_ list: PeopleList) -> [String] {

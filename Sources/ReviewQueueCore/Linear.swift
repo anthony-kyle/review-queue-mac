@@ -9,6 +9,15 @@ public struct ListDiffsArgs: Encodable, Equatable, Sendable {
     var cursor: String?
 }
 
+struct ListTeamsArgs: Encodable, Sendable {
+    let limit: Int
+    var cursor: String?
+}
+
+struct ListCyclesArgs: Encodable, Sendable {
+    let teamId: String
+}
+
 public struct Diff: Decodable, Equatable, Sendable {
     let url: String
     let appUrl: String
@@ -148,7 +157,7 @@ public actor LinearMCPClient {
     private var sessionId: String?
     private var isReady = false
     private var nextId = 1
-    private var diffTool: String?
+    private var toolNames: [String]?
 
     public init(session: URLSession = .shared, accessToken: @escaping AccessToken) {
         self.accessToken = accessToken
@@ -157,13 +166,40 @@ public actor LinearMCPClient {
 
     /// One `list_diffs` page. A reply that is not JSON reads as an empty last page, so the per-PR lookup still covers it.
     public func listDiffs(_ args: ListDiffsArgs) async throws -> DiffPage {
-        let text = try await callTool(try await resolveDiffTool(), arguments: args)
+        let text = try await callTool(try await resolve(.diffs), arguments: args)
         guard text.drop(while: \.isWhitespace).hasPrefix("{") else { return DiffPage() }
         return try JSONDecoder().decode(DiffPage.self, from: Data(text.utf8))
     }
 
-    private func resolveDiffTool() async throws -> String {
-        if let diffTool { return diffTool }
+    /// Every team in the workspace, paged until `list_teams` says there are no more, sorted by name.
+    public func listTeams() async throws -> [LinearTeam] {
+        let tool = try await resolve(.teams)
+        var teams: [LinearTeam] = []
+        var cursor: String?
+        repeat {
+            let text = try await callTool(tool, arguments: ListTeamsArgs(limit: 250, cursor: cursor))
+            let page = try JSONDecoder().decode(TeamPage.self, from: Data(text.utf8))
+            teams += page.teams
+            cursor = page.hasNextPage == true ? page.cursor : nil
+        } while cursor != nil
+        return teams.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Every cycle of the team with id `team`.
+    public func listCycles(team: String) async throws -> [LinearCycle] {
+        try cyclesOf(try await callTool(try await resolve(.cycles), arguments: ListCyclesArgs(teamId: team)))
+    }
+
+    private func resolve(_ tool: LinearTool) async throws -> String {
+        let names = try await listToolNames()
+        guard let name = tool.resolved(in: names) else {
+            throw ReviewQueueError("Linear MCP offers no \(tool.noun) tool to this sign-in (\(names.count) tools: \(names.prefix(12).joined(separator: ", ")))")
+        }
+        return name
+    }
+
+    private func listToolNames() async throws -> [String] {
+        if let toolNames { return toolNames }
         try await ensureReady()
         let id = takeId()
         let (data, response) = try await post(RPCRequest<Empty>(id: id, method: "tools/list", params: Empty()))
@@ -171,11 +207,8 @@ public actor LinearMCPClient {
         let listed = try mcpResponse(body: data, contentType: response.value(forHTTPHeaderField: "Content-Type"), id: id)
         if let error = listed.error { throw ReviewQueueError("tools/list: \(error.message)") }
         let names = listed.result?.tools?.map(\.name) ?? []
-        guard let name = diffToolName(in: names) else {
-            throw ReviewQueueError("Linear MCP offers no diff tool to this sign-in (\(names.count) tools: \(names.prefix(12).joined(separator: ", ")))")
-        }
-        diffTool = name
-        return name
+        toolNames = names
+        return names
     }
 
     private func callTool<A: Encodable & Sendable>(_ name: String, arguments: A, isRetry: Bool = false) async throws -> String {
