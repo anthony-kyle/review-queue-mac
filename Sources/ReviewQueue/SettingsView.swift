@@ -33,6 +33,7 @@ private struct ReviewQueueSettings: View {
     var body: some View {
         Form {
             teams
+            allowedBotAuthors
             ForEach(Block.allCases) { block in
                 BlockSettings(model: model, block: block)
             }
@@ -45,6 +46,23 @@ private struct ReviewQueueSettings: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var allowedBotAuthors: some View {
+        Section {
+            LoginList(
+                logins: model.settings.allowedBotAuthors,
+                emptyText: "No allowed bot authors.",
+                onRemove: { login in model.update(refreshAfter: true) { $0.setAllowedBotAuthor(login, isOn: false) } },
+                add: LoginList.Add(title: "Bot login", prompt: "e.g. release-bot") { login in
+                    model.update(refreshAfter: true) { $0.setAllowedBotAuthor(login, isOn: true) }
+                }
+            )
+        } header: {
+            Text("Allowed bot authors")
+        } footer: {
+            Text("PRs opened by bots are hidden from the queue unless the bot is listed here. Enter the login with or without [bot].")
+        }
     }
 
     private var teams: some View {
@@ -234,6 +252,33 @@ func settingsBinding<T>(_ model: AppModel, _ keyPath: WritableKeyPath<QueueSetti
         get: { model.settings[keyPath: keyPath] },
         set: { value in model.update(refreshAfter: refreshAfter) { $0[keyPath: keyPath] = value } }
     )
+}
+
+/// A list of logins with a Remove button each, an empty-state line, and an optional add field.
+struct LoginList: View {
+    /// The add field's title, placeholder and handler; omit it for a list that is only filled elsewhere.
+    struct Add {
+        let title: String
+        let prompt: String
+        let onAdd: (String) -> Void
+    }
+
+    let logins: [String]
+    let emptyText: String
+    let onRemove: (String) -> Void
+    var add: Add?
+
+    var body: some View {
+        if logins.isEmpty {
+            Text(emptyText).foregroundStyle(.secondary)
+        }
+        ForEach(logins, id: \.self) { login in
+            RemovableRow(name: login) { onRemove(login) }
+        }
+        if let add {
+            AddField(title: add.title, prompt: add.prompt, onAdd: add.onAdd)
+        }
+    }
 }
 
 struct RemovableRow: View {

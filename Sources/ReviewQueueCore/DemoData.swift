@@ -28,6 +28,7 @@ public struct DemoData: Sendable {
         settings.myPrs.excludedRepos = ["acme/acme-db-migrations"]
         settings.myPrs.ignoredCommenters = ["datadog-official"]
         settings.ignoredCiSources = ["vercel"]
+        settings.allowedBotAuthors = ["release-bot"]
         self.settings = settings
         people = ["alex-morgan", "jdoe", "priya-n", "sam-rivera"]
         teams = settings.teams + ["acme/mobile"]

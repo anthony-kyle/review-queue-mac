@@ -165,6 +165,23 @@ func isBot(_ author: Author?) -> Bool {
     return author.typename == "Bot" || author.login.hasSuffix("[bot]") || botLogins.contains(author.login)
 }
 
+/// A bot login reduced for comparison: trimmed, lowercased, without GitHub's REST `[bot]` suffix.
+func botKey(_ login: String) -> String {
+    let lowered = login.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return lowered.hasSuffix("[bot]") ? String(lowered.dropLast("[bot]".count)) : lowered
+}
+
+/// Whether the author is a bot the person listed in Settings; `karbi-github` and `Karbi-GitHub[bot]` both match `karbi-github`.
+func isAllowedBot(_ author: Author?, _ settings: QueueSettings) -> Bool {
+    guard let author else { return false }
+    return settings.allowedBotAuthors.contains { botKey($0) == botKey(author.login) }
+}
+
+/// Whether a PR by this author belongs in the queue: humans and allowed bots, never you.
+func isQueueAuthor(_ author: Author?, me: String, _ settings: QueueSettings) -> Bool {
+    author?.login != me && (!isBot(author) || isAllowedBot(author, settings))
+}
+
 /// Pulls the Linear identifier out of a branch name or title: `eng-2368-foo` and `alex/eng-2291` both give `ENG-2368`/`ENG-2291`.
 /// Single-letter prefixes and date-like numbers are skipped so `w-9` and `report-2026-08-04` never match.
 public func storyIdOf(_ branch: String, _ title: String) -> String? {

@@ -13,6 +13,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     public var blockPrefs: [Block: BlockPrefs] = [:]
     public var linearWorkspace = ""
     public var ignoredCiSources: [String] = []
+    public var allowedBotAuthors: [String] = []
     public var notifyHigh = true
     public var repeatHighReminders = true
     public var notifyNeeds = true
@@ -24,7 +25,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     public init() {}
 
     enum CodingKeys: String, CodingKey {
-        case intervalMinutes, teams, repoAccess, highUsers, lowUsers, hiddenDetails, blockPrefs, linearWorkspace, ignoredCiSources
+        case intervalMinutes, teams, repoAccess, highUsers, lowUsers, hiddenDetails, blockPrefs, linearWorkspace, ignoredCiSources, allowedBotAuthors
         case notifyHigh, repeatHighReminders, notifyNeeds, notifyReviewRequested, highSound, normalSound, myPrs
     }
 
@@ -40,6 +41,7 @@ public struct QueueSettings: Codable, Equatable, Sendable {
         blockPrefs = try c.value(.blockPrefs, or: d.blockPrefs)
         linearWorkspace = try c.value(.linearWorkspace, or: d.linearWorkspace)
         ignoredCiSources = try c.value(.ignoredCiSources, or: d.ignoredCiSources)
+        allowedBotAuthors = try c.value(.allowedBotAuthors, or: d.allowedBotAuthors)
         notifyHigh = try c.value(.notifyHigh, or: d.notifyHigh)
         repeatHighReminders = try c.value(.repeatHighReminders, or: d.repeatHighReminders)
         notifyNeeds = try c.value(.notifyNeeds, or: d.notifyNeeds)
@@ -89,6 +91,12 @@ public struct QueueSettings: Codable, Equatable, Sendable {
     public mutating func setIgnoredCiSource(_ source: String, isOn: Bool) {
         let match = ignoredCiSources.first { $0.caseInsensitiveCompare(source.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame }
         ignoredCiSources = toggledName(ignoredCiSources, match ?? source, isOn: isOn)
+    }
+
+    /// Adds (trimmed, ignoring blanks) or removes a bot whose PRs the review queue keeps; bots match without case or a `[bot]` suffix.
+    public mutating func setAllowedBotAuthor(_ login: String, isOn: Bool) {
+        let match = allowedBotAuthors.first { botKey($0) == botKey(login) }
+        allowedBotAuthors = toggledName(allowedBotAuthors, match ?? login, isOn: isOn)
     }
 
     public func shows(_ detail: CardDetail) -> Bool {
