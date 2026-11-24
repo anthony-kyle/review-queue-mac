@@ -10,6 +10,7 @@ public struct JSONStore: Sendable {
     public static let myAlertState = "my-alert-state.json"
     public static let myDismissals = "my-dismissals.json"
     public static let myAcknowledged = "my-acknowledged.json"
+    public static let reviewHistory = "review-history.json"
 
     private let directory: URL
 

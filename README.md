@@ -27,7 +27,7 @@ make test   # swift test
 make app    # release build, assembles build/ReviewQueue.app and code-signs it
 make run    # make app, then open it
 make install  # make app, replace /Applications/ReviewQueue.app and relaunch it
-make screenshots  # make app, then capture both menus and every Settings tab on demo data to docs/images
+make screenshots  # make app, then capture both menus, every Settings tab and the statistics window on demo data to docs/images
 ```
 
 `make screenshots` launches the app with `--screenshots <shot>`, which swaps in built-in fake data (no network, disk, Keychain or notifications) and shows one screen per run. It brings each run to the front through System Events, since Liquid Glass only draws its tints in the active app, so the terminal needs Automation access to System Events and Screen Recording access for `screencapture`. Run it on a Retina display for 2x images.
@@ -44,7 +44,7 @@ Run `make install` before turning on Launch at login, since `SMAppService` regis
 
 Open Settings from the review queue's menu bar window and pick your GitHub teams. Open PRs in those teams' repos (owned or writable, your choice) make up the queue, minus your own PRs and bot PRs (unless you list the bot under Allowed bot authors). Both lists refresh together every 15 minutes by default (5, 10, 15, 30 or 60), on wake from sleep, and when you open either menu with data older than the interval. A failure in one list shows on its own menu and leaves the other untouched.
 
-Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.ReviewQueue/`, next to the notification seen-state of both menus, the Done marks, the acknowledged My PRs comments, the Linear lookup cache and the registered Linear OAuth client id. The Linear OAuth tokens live in the Keychain.
+Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.ReviewQueue/`, next to the notification seen-state of both menus, the Done marks, the acknowledged My PRs comments, the Linear lookup cache, the review statistics history and the registered Linear OAuth client id. The Linear OAuth tokens live in the Keychain.
 
 ### Settings
 
@@ -58,7 +58,7 @@ The settings window has three tabs, and each menu's Settings button opens its ow
 
 - **Review queue**: teams, repo access, allowed bot authors, per-block sort, approved-by-others and changes-requested-by-others inclusions, and pinned / muted authors, and the queue's notification rules.
 - **My PRs**: excluded orgs and repos, bot comments, ignored commenters, notification rules and per-block sort.
-- **General**: Linear sign-in and workspace slug, refresh interval, card details (shared by both menus), ignored CI sources, the loud alert sound with a Test button, and launch at login.
+- **General**: Linear sign-in, workspace slug and the sprint team for Review statistics, refresh interval, card details (shared by both menus), ignored CI sources, the loud alert sound with a Test button, and launch at login.
 
 ### Ignored CI sources
 
@@ -93,6 +93,22 @@ Blocks, in order:
 5. **Drafts**.
 
 Cards reuse the queue's card-detail toggles (waiting, approvals, changes-requests, comments, threads, CI, failing and neutral checks); the waiting line also lists requested reviewers. The menu bar pill takes its colour from these blocks; see [Menu bar pills](#menu-bar-pills).
+
+## Review statistics
+
+The chart button in the review queue's header opens a Review statistics window with how you review compared with your teams.
+
+<p>
+<img width="100%" alt="Review statistics window" src="docs/images/stats.png" />
+</p>
+
+- **Graph**: your reviews per day in the selected period only, headed `N reviews in <period>`. Sprint, Week and Month show a calendar of compact days in week rows, the date top-left and the count bottom-right; Quarter and Year show a GitHub-style heatmap with month labels, sized to the full width, each reviewed day showing its count. Weeks start on your calendar's first weekday, future days are outlined and empty, and hovering a day shows its count. The graph keeps the height of a six-week month whichever period is shown, so nothing below it moves. Cells are outlined in green with a fill that deepens over five steps; the scale comes from the quartiles of your busy days across the whole kept history, so a shade means the same in every period.
+- **Period**: Sprint, Week, Month, Quarter or Year, which you can step back through (never into the future, nor past the year of kept history). Sprint appears once you are signed in to Linear and have chosen a sprint team in Settings › General: it follows that team's Linear cycles, shown as e.g. `Cycle 42 · 19 Nov – 2 Dec`, and is the default while a cycle is running; otherwise the window opens on Month. Cycles are fetched from Linear's MCP server each time the window opens; if that fails, Sprint is hidden and a note says why.
+- **Metrics**: reviews done (each PR counts once per day you approve, request changes or comment on it), PRs approved, PRs with changes requested, response rate, first responses and PRs unblocked. **Response rate** is the share of review requests you answered within one business day (Saturdays and Sundays skipped; a request at the weekend counts from Monday 00:00). A request is yours when you are asked by name or one of your selected teams is asked, once per PR, from the later of the request and the PR becoming ready. A request that is removed, or a PR merged or closed, before you review and before it is due doesn't count either way; one still unreviewed after it is due is missed, and one not yet due is pending. The card shows how many you answered in time out of those due, how many you missed or have pending, and your own median time to respond, which is never ranked. **First responses** counts PRs you were asked on and gave the first review. Unblocked counts PRs you gave the first review to after they had waited 72 hours or more since ready. Reviews on your own PRs, bot reviews, and dismissed or pending reviews never count. PRs opened by bots that aren't in Settings › Review queue › Allowed bot authors are left out of every figure, the same list the queue uses.
+- **Trend**: a line chart of one metric (picked from the menu beside the Trend | Leaderboard switch: any card's metric, or Your response time) over the periods leading up to the selected one: 12 cycles, weeks or months, 4 quarters, or every year the kept history reaches, never a period starting before it. You are the solid green line, broken where you had nothing to measure; the team median is dashed. The selected period is the last, larger point; a period still running is hollow and reads "so far" on hover, which shows the period, your value and the median. A thin orange line on its own right-hand axis shows the team's open PRs waiting for review at the end of each period (or now): open, ready, and with no review yet from anyone but the author or bots, skipping PRs from bots that aren't allowed.
+- **Benchmark**: each metric shows the median and your rank among your chosen teams' members, counting only reviews in the teams' repos. Teammates with no reviews in the period count as zero; anyone with no request due is left out of the response-rate ranking. Below the cards, a **Trend | Leaderboard** switch (Trend by default, remembered in Settings) shows one panel: the trend chart, or a leaderboard listing everyone by name, sortable by any column (including Median response, which is never ranked), with your row highlighted.
+
+History is fetched separately from the queue, only for the statistics window: every PR updated within the last year in the teams' repos, with its ready, merged and closed times, review requests and their removals (people and teams; up to 100 such events) and up to 100 reviews. Team requests are matched to the selected teams' current members when stats are computed. It is cached in `review-history.json` (a cache from an older version is discarded and fetched again in full), so the window shows the last data straight away, and refreshes when opened if over an hour old, or with its Refresh button. Later refreshes only page back to just before the previous one. The first load can take a while on busy repos and shows its progress; if GitHub's API budget runs low or a repo fails, it keeps what it has and says so.
 
 ## Notifications
 

@@ -17,6 +17,17 @@ private struct GraphQLResponse<T: Decodable>: Decodable {
     }
 }
 
+/// A review history refresh: the merged history, and why it stopped early when it did.
+public struct HistoryFetchResult: Sendable {
+    public let history: ReviewHistory
+    public let note: String?
+}
+
+private struct RepoHistory: Sendable {
+    let prs: [HistoryPr]
+    let resetAt: String?
+}
+
 private struct UserJSON: Decodable {
     let login: String
 }
@@ -53,11 +64,6 @@ private struct SearchData: Decodable, Sendable {
         let pageInfo: PageInfo
         let nodes: [ListNode]
     }
-
-    struct PageInfo: Decodable, Sendable {
-        let hasNextPage: Bool
-        let endCursor: String?
-    }
 }
 
 private struct ClosureNodes: Decodable, Sendable {
@@ -71,6 +77,10 @@ public actor GitHubClient {
     private static let api = URL(string: "https://api.github.com/")!
     private static let listFields = "number title url isDraft headRefName createdAt updatedAt author { login __typename }"
     private static let closureBatch = 50
+    private static let historyPage = 25
+    private static let historyRateFloor = 200
+    private static let requestedReviewer = "requestedReviewer { ... on User { login } ... on Team { slug organization { login } } }"
+    private static let historyFields = "number createdAt updatedAt mergedAt closedAt author { login __typename } timelineItems(first: 100, itemTypes: [READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) { nodes { __typename ... on ReadyForReviewEvent { createdAt } ... on ReviewRequestedEvent { createdAt \(requestedReviewer) } ... on ReviewRequestRemovedEvent { createdAt \(requestedReviewer) } } } reviews(first: 100) { nodes { author { login __typename } state submittedAt } }"
     private static let queueFragment = """
         fragment D on PullRequest {
           headRefOid
@@ -111,15 +121,10 @@ public actor GitHubClient {
     /// keeps each GraphQL query under GitHub's node limit. Repos and members are unioned across `teams`.
     public func fetchQueue(teams: [String], access: RepoAccess, settings: QueueSettings) async throws -> FetchResult {
         let me = try await viewerLogin()
-        var repos: [Repo] = []
-        var members: [String] = []
-        for team in teams {
-            repos += try await teamRepos(team, access: access)
-            members += try await teamMembers(team)
-        }
-        let candidates = try await listCandidates(unique(repos), me: me, settings: settings)
+        let (repos, members) = try await teamScope(teams, access: access)
+        let candidates = try await listCandidates(repos, me: me, settings: settings)
         let prs = try await detailed(candidates, fragment: Self.queueFragment).map { queuePr($0, detail: $1, me: me) }
-        let people = Set(members + prs.map(\.author)).filter { $0 != me }.sorted()
+        let people = Set(members.values.joined() + prs.map(\.author)).filter { $0 != me }.sorted()
         return FetchResult(prs: prs, people: people, me: me)
     }
 
@@ -153,6 +158,78 @@ public actor GitHubClient {
             }
         }
         return closures
+    }
+
+    /// Brings `cached` up to date for the chosen teams' repos and members: each repo is paged newest-updated first back
+    /// to its last complete fetch (or the retention start), PRs are upserted, and anything outside the teams' repos or
+    /// older than the retention start is dropped. Stops early, keeping what it has and saying why in `note`, when a repo
+    /// fails or GitHub's GraphQL budget runs low. `progress` hears repos done out of the total after each one.
+    public func fetchReviewHistory(
+        teams: [String],
+        access: RepoAccess,
+        cached: ReviewHistory,
+        now: Date,
+        calendar: Calendar,
+        progress: @Sendable (_ done: Int, _ total: Int) async -> Void
+    ) async throws -> HistoryFetchResult {
+        let me = try await viewerLogin()
+        let (repos, members) = try await teamScope(teams, access: access)
+        let start = historyStart(today: now, calendar: calendar)
+        let names = repos.map(\.fullName)
+        var history = cached.pruned(repos: Set(names), start: start)
+        history.me = me
+        history.teamMembers = members.mapValues { $0.filter { !$0.hasSuffix("[bot]") }.sorted() }
+        history.members = Set(history.teamMembers.values.joined()).sorted()
+        await progress(0, repos.count)
+        for (done, repo) in repos.enumerated() {
+            let fetched: RepoHistory
+            do {
+                fetched = try await repoHistory(repo, since: history.fetchSince(repo.fullName, start: start))
+            } catch {
+                return HistoryFetchResult(history: history.pruned(repos: Set(names), start: start), note: error.localizedDescription)
+            }
+            history = history.merged(fetched.prs, repo: repo.fullName, isComplete: fetched.resetAt == nil, at: now)
+            if let resetAt = fetched.resetAt {
+                let reset = isoDate(resetAt).map { " after \(clockTime($0))" } ?? " later"
+                let note = "GitHub's API limit is nearly used up, so \(done) of \(repos.count) repos are up to date. Refresh\(reset) for the rest."
+                return HistoryFetchResult(history: history.pruned(repos: Set(names), start: start), note: note)
+            }
+            await progress(done + 1, repos.count)
+        }
+        history.completedAt = now
+        return HistoryFetchResult(history: history.pruned(repos: Set(names), start: start), note: nil)
+    }
+
+    /// One repo's PRs updated since `since`, newest first, `historyPage` at a time. `resetAt` is set when GitHub's
+    /// remaining GraphQL budget dropped below `historyRateFloor`, which stops paging early.
+    private func repoHistory(_ repo: Repo, since: Date) async throws -> RepoHistory {
+        var prs: [HistoryPr] = []
+        var cursor: String?
+        repeat {
+            let after = cursor.map { #", after: "\#($0)""# } ?? ""
+            let query = #"query { rateLimit { remaining resetAt } repository(owner: "\#(repo.owner)", name: "\#(repo.name)") { pullRequests(states: [OPEN, MERGED, CLOSED], first: \#(Self.historyPage), orderBy: { field: UPDATED_AT, direction: DESC }\#(after)) { pageInfo { hasNextPage endCursor } nodes { \#(Self.historyFields) } } } }"#
+            let page = try await graphql(query, as: HistoryPageData.self)
+            guard let connection = page.repository?.pullRequests else { break }
+            prs += connection.nodes.compactMap { historyPr($0, repo: repo.fullName) }
+            if let limit = page.rateLimit, limit.remaining < Self.historyRateFloor {
+                return RepoHistory(prs: prs, resetAt: limit.resetAt)
+            }
+            let isPastSince = prs.last.map { $0.updatedAt < since } ?? true
+            cursor = connection.pageInfo.hasNextPage && !isPastSince ? connection.pageInfo.endCursor : nil
+        } while cursor != nil
+        return RepoHistory(prs: prs, resetAt: nil)
+    }
+
+    /// The chosen teams' repos (held at `access`, unarchived, unioned across `teams`) and each team's members, keyed by
+    /// `org/slug`.
+    private func teamScope(_ teams: [String], access: RepoAccess) async throws -> (repos: [Repo], members: [String: [String]]) {
+        var repos: [Repo] = []
+        var members: [String: [String]] = [:]
+        for team in teams {
+            repos += try await teamRepos(team, access: access)
+            members[team] = try await teamMembers(team)
+        }
+        return (unique(repos), members)
     }
 
     private func viewerLogin() async throws -> String {

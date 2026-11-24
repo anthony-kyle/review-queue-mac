@@ -37,6 +37,16 @@ final class AppModel {
     private(set) var acknowledged: Set<String>
     private(set) var myFetchedAt: Date?
     private(set) var myError: String?
+    private(set) var history = ReviewHistory()
+    private(set) var isHistoryLoading = false
+    private(set) var historyReposDone = 0
+    private(set) var historyReposTotal = 0
+    private(set) var historyNote: String?
+    private(set) var linearTeams: [LinearTeam] = []
+    private(set) var linearTeamsError: String?
+    private(set) var isLoadingLinearTeams = false
+    private(set) var sprintCycles: [LinearCycle] = []
+    private(set) var sprintNote: String?
     var expanded = Set(Block.allCases.filter(\.isOpenByDefault))
     var shownRows: [Block: Int] = [:]
     var rowExpansion = RowExpansion()
@@ -55,6 +65,8 @@ final class AppModel {
     @ObservationIgnored private var alertState: AlertState?
     @ObservationIgnored private var myAlertState: MyAlertState?
     @ObservationIgnored private var isAcknowledgedBaselined: Bool
+    @ObservationIgnored private var isHistoryRead = false
+    @ObservationIgnored private var sprintCyclesTeam: String?
     @ObservationIgnored private var timer: Task<Void, Never>?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
 
@@ -104,6 +116,11 @@ final class AppModel {
         me = DemoData.me
         myAllPrs = demo.myPrs
         myFetchedAt = demo.fetchedAt
+        history = demo.reviewHistory
+        isHistoryRead = true
+        linearTeams = DemoData.linearTeams
+        sprintCycles = demo.cycles
+        sprintCyclesTeam = demo.settings.sprintTeam?.id
         notificationPermission = "Allowed"
         if let first = lists[.high]?.shown.first { rowExpansion.toggle(first.key, in: Block.high.rawValue) }
         if let second = myLists[.needsYou]?.shown.dropFirst().first { myRowExpansion.toggle(second.key, in: MyBlock.needsYou.rawValue) }
@@ -231,6 +248,7 @@ final class AppModel {
         isLinearSignedIn = false
         linear = nil
         linearError = nil
+        linearTeams = []
         Task {
             await linearTokens.signOut()
             await refresh()
@@ -285,6 +303,98 @@ final class AppModel {
     func refreshIfStale() {
         let oldest = [fetchedAt, myFetchedAt].map { $0 ?? .distantPast }.min() ?? .distantPast
         if Date().timeIntervalSince(oldest) > Double(settings.intervalMinutes * 60) { Task { await refresh() } }
+    }
+
+    /// Reads the cached review history on first use, then refreshes it when the last full refresh is over an hour old.
+    /// The queue's own timer never fetches history; only the statistics window does.
+    func refreshHistoryIfStale() {
+        guard let store else { return }
+        if !isHistoryRead {
+            history = store.load(ReviewHistory.self, from: JSONStore.reviewHistory) ?? ReviewHistory()
+            isHistoryRead = true
+        }
+        if Date().timeIntervalSince(history.completedAt ?? .distantPast) > 3600 { Task { await refreshHistory() } }
+    }
+
+    /// Fetches review history for the chosen teams' repos on top of the cache and saves it, keeping partial results
+    /// with a note when GitHub's budget runs low or a repo fails.
+    func refreshHistory() async {
+        guard let store, !isHistoryLoading, !settings.teams.isEmpty else { return }
+        isHistoryLoading = true
+        historyReposDone = 0
+        historyReposTotal = 0
+        defer { isHistoryLoading = false }
+        do {
+            let result = try await github.fetchReviewHistory(
+                teams: settings.teams,
+                access: settings.repoAccess,
+                cached: history,
+                now: Date(),
+                calendar: .current
+            ) { [weak self] done, total in
+                await self?.showHistoryProgress(done, of: total)
+            }
+            history = result.history
+            historyNote = result.note
+            store.save(result.history, to: JSONStore.reviewHistory)
+        } catch {
+            historyNote = error.localizedDescription
+        }
+    }
+
+    /// Whether the statistics window offers Sprint: signed in to Linear, a sprint team chosen, and that team's cycles
+    /// loaded. A failed load leaves it off, with `sprintNote` saying why.
+    var isSprintOffered: Bool {
+        isLinearSignedIn && settings.sprintTeam != nil && sprintCyclesTeam == settings.sprintTeam?.id && !sprintCycles.isEmpty
+    }
+
+    /// Lists the workspace's Linear teams for the sprint team picker, once per sign-in; calling it again after a failure
+    /// retries.
+    func loadLinearTeamsIfNeeded() {
+        guard store != nil, linearTeams.isEmpty, !isLoadingLinearTeams, let client = linearClient() else { return }
+        isLoadingLinearTeams = true
+        Task {
+            defer { isLoadingLinearTeams = false }
+            do {
+                linearTeams = try await client.listTeams()
+                linearTeamsError = nil
+            } catch {
+                linearTeamsError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Chooses the team whose cycles Sprint follows, or none, and loads its cycles.
+    func setSprintTeam(_ team: LinearTeam?) {
+        update { $0.sprintTeam = team }
+        sprintCycles = []
+        sprintCyclesTeam = nil
+        sprintNote = nil
+        refreshSprintCycles()
+    }
+
+    /// Fetches the sprint team's cycles in the background, kept in memory and refetched each time the statistics window
+    /// opens; the other periods never wait on it. A result for a team no longer chosen is dropped.
+    func refreshSprintCycles() {
+        guard store != nil, let team = settings.sprintTeam, let client = linearClient() else { return }
+        Task {
+            do {
+                let cycles = try await client.listCycles(team: team.id)
+                guard settings.sprintTeam == team else { return }
+                sprintCycles = cycles
+                sprintCyclesTeam = team.id
+                sprintNote = nil
+            } catch {
+                guard settings.sprintTeam == team else { return }
+                sprintCycles = []
+                sprintNote = "Linear: couldn't load \(team.name)'s cycles, so Sprint is hidden. \(error.localizedDescription)"
+            }
+        }
+    }
+
+    private func showHistoryProgress(_ done: Int, of total: Int) {
+        historyReposDone = done
+        historyReposTotal = total
     }
 
     func loadTeamsIfNeeded() {

@@ -80,11 +80,21 @@ func mcpResponse(body: Data, contentType: String?, id: Int) throws -> RPCRespons
     throw ReviewQueueError("no JSON-RPC response with id \(id)")
 }
 
-/// The tool that lists Linear diffs: `list_diffs` when offered, else the first name holding both `list` and `diff`.
-/// Linear has renamed and gated its tools before, so the name is looked up rather than assumed.
-func diffToolName(in names: [String]) -> String? {
-    if names.contains("list_diffs") { return "list_diffs" }
-    return names.first { $0.localizedCaseInsensitiveContains("diff") && $0.localizedCaseInsensitiveContains("list") }
+/// A Linear MCP tool the app calls: its usual name, and the words a renamed version would still hold. Linear has renamed
+/// and gated its tools before, so names are looked up rather than assumed.
+struct LinearTool: Sendable {
+    static let diffs = LinearTool(name: "list_diffs", noun: "diff")
+    static let teams = LinearTool(name: "list_teams", noun: "team")
+    static let cycles = LinearTool(name: "list_cycles", noun: "cycle")
+
+    let name: String
+    let noun: String
+
+    /// `name` when offered, else the first offered name holding both `list` and `noun`.
+    func resolved(in names: [String]) -> String? {
+        if names.contains(name) { return name }
+        return names.first { $0.localizedCaseInsensitiveContains(noun) && $0.localizedCaseInsensitiveContains("list") }
+    }
 }
 
 /// The first text block of a `tools/call` result; JSON-RPC errors and `isError` results throw.

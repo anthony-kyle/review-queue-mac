@@ -17,13 +17,23 @@ enum ScreenshotStage {
         case settingsGeneral = "settings-general"
         case pillsReviewQueue = "pills-review-queue"
         case pillsMyPrs = "pills-my-prs"
+        case stats = "stats"
 
         var settingsTab: SettingsTab? {
             switch self {
-            case .reviewQueue, .myPrs, .pillsReviewQueue, .pillsMyPrs: nil
+            case .reviewQueue, .myPrs, .pillsReviewQueue, .pillsMyPrs, .stats: nil
             case .settingsReviewQueue: .reviewQueue
             case .settingsMyPrs: .myPrs
             case .settingsGeneral: .general
+            }
+        }
+
+        /// What the shot's window identifier contains when it is a real scene's window, found once the scene opens.
+        var sceneWindow: String? {
+            switch self {
+            case .settingsReviewQueue, .settingsMyPrs, .settingsGeneral: "settings"
+            case .stats: StatsView.windowId
+            case .reviewQueue, .myPrs, .pillsReviewQueue, .pillsMyPrs: nil
             }
         }
     }
@@ -75,14 +85,16 @@ enum ScreenshotStage {
                 ("Waiting", .myPrs(needsYou: 0, ready: 0, waiting: 3, behind: 1)),
                 ("No reviews", .myPrs(needsYou: 0, ready: 0, waiting: 0, behind: 0)),
             ])
+        case .stats:
+            window = invisibleWindow(StatsOpener())
         case .settingsReviewQueue, .settingsMyPrs, .settingsGeneral:
             model.settingsTab = shot.settingsTab ?? .reviewQueue
             window = invisibleWindow(SettingsOpener())
         }
         Task {
             try? await Task.sleep(for: .seconds(2))
-            if shot.settingsTab != nil {
-                window = NSApp.windows.first { $0.identifier?.rawValue.localizedCaseInsensitiveContains("settings") == true }
+            if let sceneWindow = shot.sceneWindow {
+                window = NSApp.windows.first { $0.identifier?.rawValue.localizedCaseInsensitiveContains(sceneWindow) == true }
                 window?.makeKeyAndOrderFront(nil)
                 window?.makeFirstResponder(nil)
                 if let window {
@@ -130,14 +142,15 @@ enum ScreenshotStage {
     }
 
     private static func pills(_ states: [(String, MenuBarLabel)]) -> NSWindow {
-        let window = hostingWindow(PillStates(states: states))
-        placeOnSharpestScreen(window)
-        window.makeKeyAndOrderFront(nil)
-        return window
+        shown(PillStates(states: states))
     }
 
     private static func panel(_ content: some View) -> NSWindow {
-        let window = hostingWindow(ScreenshotBackdrop { content })
+        shown(ScreenshotBackdrop { content })
+    }
+
+    private static func shown(_ content: some View) -> NSWindow {
+        let window = hostingWindow(content)
         placeOnSharpestScreen(window)
         window.makeKeyAndOrderFront(nil)
         return window
@@ -222,6 +235,15 @@ private struct PillStates: View {
         .padding(.vertical, 14)
         .frame(maxWidth: .infinity)
         .background(isDark ? Color(white: 0.16) : Color(white: 0.93))
+    }
+}
+
+/// Opens the statistics window scene once it appears, so the shot shows the window Statistics opens.
+private struct StatsOpener: View {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        Color.clear.frame(width: 1, height: 1).onAppear { openWindow(id: StatsView.windowId) }
     }
 }
 

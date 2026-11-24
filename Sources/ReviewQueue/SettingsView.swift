@@ -187,11 +187,46 @@ private struct GeneralSettings: View {
                 Text(error).foregroundStyle(.red).font(.callout)
             }
             TextField("Workspace slug", text: settingsBinding(model, \.linearWorkspace), prompt: Text("e.g. acme"))
+            if model.isLinearSignedIn {
+                sprintTeam
+            }
         } header: {
             Text("Linear")
         } footer: {
-            Text("Signing in lets the app find each PR's Linear review through Linear's MCP server; sign-in finishes in your browser. The workspace slug links story ids when no review URL has revealed it; leave blank to show stories as plain text.")
+            Text("Signing in lets the app find each PR's Linear review through Linear's MCP server; sign-in finishes in your browser. The workspace slug links story ids when no review URL has revealed it; leave blank to show stories as plain text. The sprint team's cycles add a Sprint period to Review statistics.")
         }
+    }
+
+    /// The team whose cycles Sprint follows, from the workspace's teams; the chosen team stays listed while they load, and
+/// a failed or empty load says so with Retry instead of leaving only None.
+    private var sprintTeam: some View {
+        let chosen = model.settings.sprintTeam
+        let teams = unique(model.linearTeams + (chosen.map { [$0] } ?? []))
+        return VStack(alignment: .leading, spacing: 4) {
+            Picker("Sprint team", selection: Binding(
+                get: { chosen?.id ?? "" },
+                set: { id in model.setSprintTeam(teams.first { $0.id == id }) }
+            )) {
+                Text("None").tag("")
+                ForEach(teams) { Text($0.label).tag($0.id) }
+            }
+            if model.isLoadingLinearTeams {
+                Text("Loading Linear teams…").foregroundStyle(.secondary).font(.callout)
+            } else if let error = model.linearTeamsError {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("Couldn't list Linear teams: \(error)").foregroundStyle(.red).font(.callout)
+                    Spacer()
+                    Button("Retry") { model.loadLinearTeamsIfNeeded() }
+                }
+            } else if model.linearTeams.isEmpty {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("No Linear teams listed yet.").foregroundStyle(.secondary).font(.callout)
+                    Spacer()
+                    Button("Retry") { model.loadLinearTeamsIfNeeded() }
+                }
+            }
+        }
+        .task(id: model.isLinearSignedIn) { model.loadLinearTeamsIfNeeded() }
     }
 }
 

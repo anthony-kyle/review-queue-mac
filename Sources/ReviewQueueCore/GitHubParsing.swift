@@ -1,6 +1,6 @@
 import Foundation
 
-private let botLogins: Set<String> = ["cursor", "dependabot", "renovate", "github-actions", "copilot"]
+private let botLogins: Set<String> = ["cursor", "dependabot", "renovate", "github-actions", "copilot", "copilot-swe-agent"]
 private let decisiveStates: Set<String> = ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]
 private let passingConclusions: Set<String> = ["SUCCESS", "SKIPPED"]
 
@@ -45,6 +45,12 @@ struct ReviewNode: Decodable, Sendable {
     let state: String
     var commit: CommitRef?
     var id: String?
+    var submittedAt: String?
+}
+
+struct PageInfo: Decodable, Sendable {
+    let hasNextPage: Bool
+    let endCursor: String?
 }
 
 struct CommentNode: Decodable, Sendable {
@@ -69,6 +75,7 @@ struct CommentConnection: Decodable, Sendable {
 struct Reviewer: Decodable, Sendable {
     var login: String?
     var slug: String?
+    var organization: Author?
 }
 
 struct ReviewRequestNode: Decodable, Sendable {
@@ -153,6 +160,8 @@ struct DetailNode: Decodable, Sendable {
 struct Repo: Hashable, Sendable {
     let owner: String
     let name: String
+
+    var fullName: String { "\(owner)/\(name)" }
 }
 
 struct Candidate: Sendable {
@@ -421,7 +430,8 @@ func nextLink(_ header: String?) -> URL? {
     return nil
 }
 
-func unique<T: Hashable>(_ items: [T]) -> [T] {
+/// `items` without repeats, keeping each first occurrence in order.
+public func unique<T: Hashable>(_ items: [T]) -> [T] {
     var seen = Set<T>()
     return items.filter { seen.insert($0).inserted }
 }

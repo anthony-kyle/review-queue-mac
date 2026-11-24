@@ -6,6 +6,11 @@ public struct DemoData: Sendable {
     public static let me = "you"
     public static let owner = "acme"
     public static let linearWorkspace = "acme"
+    public static let linearTeams = [
+        LinearTeam(id: "team-mobile", key: "MOB", name: "Mobile"),
+        LinearTeam(id: "team-platform", key: "PLAT", name: "Platform"),
+        LinearTeam(id: "team-web", key: "WEB", name: "Web"),
+    ]
 
     public let settings: QueueSettings
     public let prs: [QueuePr]
@@ -13,18 +18,22 @@ public struct DemoData: Sendable {
     public let people: [String]
     public let teams: [String]
     public let fetchedAt: Date
+    public let reviewHistory: ReviewHistory
+    public let cycles: [LinearCycle]
 
     /// High priority holds a daily-group PR with others' approval and changes-request and one updated after your
     /// changes, which links the diff since your review and fails only a muted Vercel check; Needs review shows three PRs and hides two approved by others and one with changes requested by others.
     /// My PRs has two that need you, one ready to merge (behind main, which an approval outranks), one with reviewers,
     /// one behind main and a draft, plus one in an excluded repo; the bot's comment is from an ignored commenter, so CI
-    /// alone puts its PR in Needs you. One ready PR keeps the menu within its scroll height.
+    /// alone puts its PR in Needs you. One ready PR keeps the menu within its scroll height. Review history covers a year
+    /// for you and seven teammates, and the Web team's cycles make Sprint the statistics window's opening period.
     public init(now: Date) {
         let at = DemoClock(now: now)
         var settings = QueueSettings()
         settings.teams = ["acme/web-team", "acme/platform"]
         settings.highUsers = ["alex-morgan"]
         settings.linearWorkspace = Self.linearWorkspace
+        settings.sprintTeam = Self.linearTeams.last
         settings.myPrs.excludedRepos = ["acme/acme-db-migrations"]
         settings.myPrs.ignoredCommenters = ["datadog-official"]
         settings.ignoredCiSources = ["vercel"]
@@ -33,6 +42,8 @@ public struct DemoData: Sendable {
         people = ["alex-morgan", "jdoe", "priya-n", "sam-rivera"]
         teams = settings.teams + ["acme/mobile"]
         fetchedAt = at.date(minutesAgo: 2)
+        reviewHistory = demoReviewHistory(now: now)
+        cycles = demoCycles(now: now)
         prs = [
             queuePr(
                 812, "acme-web", "feat(web): add CSV export to the invoice list", author: "alex-morgan", story: 1042,
@@ -130,6 +141,147 @@ public struct DemoData: Sendable {
             ),
         ]
     }
+}
+
+/// A demo reviewer: how often they pick up a teammate's PR and their typical hours to first review.
+private struct DemoReviewer {
+    let login: String
+    let pickUp: Double
+    let hours: Double
+}
+
+private let demoReviewers = [
+    DemoReviewer(login: DemoData.me, pickUp: 0.36, hours: 3),
+    DemoReviewer(login: "alex-morgan", pickUp: 0.26, hours: 5),
+    DemoReviewer(login: "jdoe", pickUp: 0.42, hours: 2),
+    DemoReviewer(login: "priya-n", pickUp: 0.22, hours: 9),
+    DemoReviewer(login: "sam-rivera", pickUp: 0.25, hours: 6),
+    DemoReviewer(login: "kim-lee", pickUp: 0.14, hours: 14),
+    DemoReviewer(login: "omar-haddad", pickUp: 0.11, hours: 22),
+    DemoReviewer(login: "lena-fischer", pickUp: 0.2, hours: 4),
+]
+
+/// A year of made-up review history for the statistics window: a few PRs each weekday (rarely one at a weekend) in the
+/// demo repos, asked of the web team as a whole or of teammates by name, picked up at each one's own rate and speed,
+/// mostly approving, sometimes requesting changes and approving the next day. Some named requests go unanswered, some
+/// PRs sit three days or more before anyone looks, PRs merge a while after their last review, and PRs nobody reviews are
+/// closed after a while. PRs from more than six months ago sit and linger longest, so the backlog of PRs waiting for
+/// review shrinks towards now. A fixed seed keeps it the same on every run; times are offsets from `now`, and anything
+/// that would land after `now` is left out.
+private func demoReviewHistory(now: Date) -> ReviewHistory {
+    var random = SplitMix(seed: 2026)
+    var numbers: [String: Int] = [:]
+    var prs: [HistoryPr] = []
+    let today = Calendar.current.startOfDay(for: now)
+    let hour: TimeInterval = 3600
+    let team = "\(DemoData.owner)/web-team"
+    for daysAgo in stride(from: 370, through: 0, by: -1) {
+        let day = Calendar.current.date(byAdding: .day, value: -daysAgo, to: today) ?? today
+        let count = Calendar.current.isDateInWeekend(day) ? (random.chance(0.15) ? 1 : 0) : 1 + random.below(4)
+        for _ in 0..<count {
+            let repo = ["acme-web", "acme-finance-lib", "acme-tools", "acme-db-migrations"][random.below(4)]
+            let number = (numbers[repo] ?? 100) + 1
+            numbers[repo] = number
+            let author = demoReviewers[random.below(demoReviewers.count)].login
+            let created = day.addingTimeInterval((9 + random.unit() * 8) * hour)
+            let ready = random.chance(0.2) ? created.addingTimeInterval((1 + random.unit() * 20) * hour) : nil
+            let isTeamRequest = random.chance(0.3)
+            let age = min(1, Double(daysAgo) / 180)
+            let sitsFor = random.chance(0.04 + 0.2 * age) ? (72 + random.unit() * 48) * hour : 0
+            var requests = isTeamRequest ? [HistoryRequest(team: team, at: max(ready ?? created, created))] : []
+            var reviews: [HistoryReview] = []
+            for reviewer in demoReviewers where reviewer.login != author && random.chance(reviewer.pickUp) {
+                let asked = max(ready ?? created, random.chance(0.8) ? created : created.addingTimeInterval(hour))
+                if !isTeamRequest { requests.append(HistoryRequest(reviewer: reviewer.login, at: asked)) }
+                guard isTeamRequest || !random.chance(0.12) else { continue }
+                let first = asked.addingTimeInterval(sitsFor + reviewer.hours * (0.3 + random.unit() * 1.4) * hour)
+                let roll = random.unit()
+                let state = roll < 0.62 ? "APPROVED" : roll < 0.82 ? "CHANGES_REQUESTED" : "COMMENTED"
+                reviews.append(HistoryReview(author: reviewer.login, state: state, submittedAt: first))
+                if state == "CHANGES_REQUESTED" {
+                    reviews.append(HistoryReview(author: reviewer.login, state: "APPROVED", submittedAt: first.addingTimeInterval((20 + random.unit() * 10) * hour)))
+                }
+            }
+            reviews = reviews.filter { $0.submittedAt <= now }
+            guard created <= now else { continue }
+            let lastReview = reviews.map(\.submittedAt).max()
+            let merged = lastReview.map { $0.addingTimeInterval((2 + random.unit() * 18) * hour) }.flatMap { $0 <= now ? $0 : nil }
+            let abandoned = lastReview == nil ? created.addingTimeInterval((2 + random.unit() * 5) * (1 + 4 * age) * 24 * hour) : nil
+            let closed = merged ?? abandoned.flatMap { $0 <= now ? $0 : nil }
+            prs.append(HistoryPr(
+                repo: "\(DemoData.owner)/\(repo)",
+                number: number,
+                author: author,
+                createdAt: created,
+                updatedAt: closed ?? lastReview ?? created,
+                readyAt: ready.flatMap { $0 <= now ? $0 : nil },
+                mergedAt: merged,
+                closedAt: closed,
+                requests: requests.filter { $0.at <= now },
+                reviews: reviews
+            ))
+        }
+    }
+    prs += demoBotPrs(now: now)
+    let members = demoReviewers.map(\.login)
+    return ReviewHistory(
+        me: DemoData.me,
+        members: members,
+        teamMembers: [team: members],
+        prs: prs,
+        completedAt: now.addingTimeInterval(-120)
+    )
+}
+
+/// Weekly dependency bumps from `dependabot`, which isn't in the demo's allowed bot authors, each approved by you within
+/// the hour. The statistics must leave every one of them out.
+private func demoBotPrs(now: Date) -> [HistoryPr] {
+    let today = Calendar.current.startOfDay(for: now)
+    return (0..<52).compactMap { week in
+        let opened = (Calendar.current.date(byAdding: .day, value: -7 * week, to: today) ?? today).addingTimeInterval(-14 * 3600)
+        let approved = opened.addingTimeInterval(1800)
+        guard approved <= now else { return nil }
+        return HistoryPr(
+            repo: "\(DemoData.owner)/acme-web",
+            number: 900 + week,
+            author: "dependabot",
+            authorIsBot: true,
+            createdAt: opened,
+            updatedAt: approved,
+            mergedAt: approved,
+            closedAt: approved,
+            requests: [HistoryRequest(reviewer: DemoData.me, at: opened)],
+            reviews: [HistoryReview(author: DemoData.me, state: "APPROVED", submittedAt: approved)]
+        )
+    }
+}
+
+/// The Web team's two-week cycles, Linear style: cycle 42 started five days before `now`, with 30 before it and the
+/// next one already planned.
+private func demoCycles(now: Date) -> [LinearCycle] {
+    let current = Calendar.current.date(byAdding: .day, value: -5, to: Calendar.current.startOfDay(for: now)) ?? now
+    return (-30...1).map { step in
+        let start = Calendar.current.date(byAdding: .day, value: 14 * step, to: current) ?? current
+        let end = Calendar.current.date(byAdding: .day, value: 14, to: start) ?? start
+        return LinearCycle(id: "cycle-\(42 + step)", number: 42 + step, startsAt: start, endsAt: end)
+    }
+}
+
+/// SplitMix64, a tiny seeded generator, so demo history is identical on every run.
+private struct SplitMix {
+    var seed: UInt64
+
+    mutating func next() -> UInt64 {
+        seed &+= 0x9E37_79B9_7F4A_7C15
+        var z = seed
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+
+    mutating func unit() -> Double { Double(next() >> 11) / Double(1 << 53) }
+    mutating func below(_ bound: Int) -> Int { Int(next() % UInt64(bound)) }
+    mutating func chance(_ probability: Double) -> Bool { unit() < probability }
 }
 
 /// Failing checks reported by `source`, or each by its own name when none is given.
