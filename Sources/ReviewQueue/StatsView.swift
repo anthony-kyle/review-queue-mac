@@ -424,20 +424,20 @@ private struct IconButton: View {
 
 /// Your reviews over the selected period, across the full grid width: a header with the period's total, the hovered
 /// day and the Less/More legend, then the days as a calendar of numbered cells in week rows (Sprint, Week, Month) or a
-/// heatmap in week columns with month labels (Quarter, Year), every reviewed day showing its count. The days sit in a
-/// block as tall as a six-week month, so switching period never moves what is below. Future days are dim outlines;
-/// days outside the period are blank. Sizes come from the grid's fixed width, never from a measurement, so the graph
+/// heatmap in week columns with month labels (Quarter, Year), every reviewed day showing its count. The days sit in one
+/// fixed-height block (`GraphLayout`) for every period, so switching period never moves what is below: calendar rows
+/// share it, top-aligned and capped, and turn compact (date and count on one line) when short. Future days are dim
+/// outlines; days outside the period are blank. Sizes come from the grid's fixed width, never from a measurement, so the graph
 /// can't feed back into the window's size.
 private struct PeriodGraphView: View {
-    private static let gap: CGFloat = 3
-    private static let heatmapGap: CGFloat = 2
+    private static let gap = CGFloat(GraphLayout.calendarGap)
+    private static let heatmapGap = CGFloat(GraphLayout.heatmapGap)
     private static let width = StatsContent.gridWidth
     private static let rowLabelWidth: CGFloat = 30
-    private static let dayHeight: CGFloat = 34
-    private static let headerHeight: CGFloat = 16
-    private static let blockHeight = headerHeight + gap + 6 * dayHeight + 5 * gap
+    private static let labelRow = CGFloat(GraphLayout.labelRow)
+    private static let labelGap = CGFloat(GraphLayout.labelGap)
+    private static let blockHeight = CGFloat(GraphLayout.blockHeight)
     private static let swatch: CGFloat = 12
-    private static let monthRow: CGFloat = 14
 
     let graph: PeriodGraph
     let title: String
@@ -471,49 +471,59 @@ private struct PeriodGraphView: View {
     }
 
     private var calendarGrid: some View {
-        VStack(spacing: Self.gap) {
+        let rowHeight = CGFloat(GraphLayout.rowHeight(rows: graph.weeks.count, gap: GraphLayout.calendarGap))
+        return VStack(spacing: Self.gap) {
             HStack(spacing: Self.gap) {
                 ForEach(graph.weekdays.indices, id: \.self) { index in
                     Text(graph.weekdays[index])
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .frame(height: Self.headerHeight)
+                        .frame(height: Self.labelRow)
                 }
             }
             ForEach(graph.weeks.indices, id: \.self) { week in
                 HStack(spacing: Self.gap) {
                     ForEach(0..<7, id: \.self) { slot in
-                        calendarDay(graph.weeks[week][slot])
+                        calendarDay(graph.weeks[week][slot], height: rowHeight)
                     }
                 }
             }
         }
     }
 
-    @ViewBuilder private func calendarDay(_ day: GraphDay?) -> some View {
+    @ViewBuilder private func calendarDay(_ day: GraphDay?, height: CGFloat) -> some View {
         if let day {
-            ZStack {
-                Text("\(calendar.component(.day, from: day.date))")
-                    .font(.caption2)
-                    .foregroundStyle(day.isFuture ? .tertiary : .secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                if day.count > 0 {
-                    Text("\(day.count)")
-                        .font(.callout.weight(.bold))
-                        .monospacedDigit()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+            let isCompact = GraphLayout.isCompact(Double(height))
+            let date = Text("\(calendar.component(.day, from: day.date))")
+                .font(.caption2)
+                .foregroundStyle(day.isFuture ? .tertiary : .secondary)
+            let count = Text(day.count > 0 ? "\(day.count)" : "")
+                .font(isCompact ? .caption.weight(.bold) : .callout.weight(.bold))
+                .monospacedDigit()
+            Group {
+                if isCompact {
+                    HStack {
+                        date
+                        Spacer(minLength: 4)
+                        count
+                    }
+                } else {
+                    ZStack {
+                        date.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                        count.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    }
+                    .padding(.vertical, 3)
                 }
             }
             .padding(.horizontal, 6)
-            .padding(.vertical, 3)
             .frame(maxWidth: .infinity)
-            .frame(height: Self.dayHeight)
+            .frame(height: height)
             .background(DayCell(level: day.level, isFuture: day.isFuture, palette: palette, cornerRadius: 6))
             .contentShape(Rectangle())
             .onHover { isInside in hovered = isInside && !day.isFuture ? day : nil }
         } else {
-            Color.clear.frame(maxWidth: .infinity).frame(height: Self.dayHeight)
+            Color.clear.frame(maxWidth: .infinity).frame(height: height)
         }
     }
 
@@ -522,7 +532,7 @@ private struct PeriodGraphView: View {
     private var heatmapCell: CGSize {
         let columns = CGFloat(max(graph.weeks.count, 1))
         let width = ((Self.width - Self.rowLabelWidth - 6) / columns).rounded(.down) - Self.heatmapGap
-        let byHeight = ((Self.blockHeight - Self.monthRow - 4) / 7).rounded(.down) - Self.heatmapGap
+        let byHeight = CGFloat(GraphLayout.rowHeight(rows: 7, gap: GraphLayout.heatmapGap))
         return CGSize(width: max(width, 6), height: max(min(width, byHeight), 6))
     }
 
@@ -538,8 +548,8 @@ private struct PeriodGraphView: View {
             .font(.caption2)
             .foregroundStyle(.secondary)
             .frame(width: Self.rowLabelWidth, alignment: .trailing)
-            .padding(.top, Self.monthRow + 4)
-            VStack(alignment: .leading, spacing: 4) {
+            .padding(.top, Self.labelRow + Self.labelGap)
+            VStack(alignment: .leading, spacing: Self.labelGap) {
                 ZStack(alignment: .topLeading) {
                     ForEach(graph.months, id: \.column) { month in
                         Text(month.name).offset(x: CGFloat(month.column) * step.width)
@@ -547,21 +557,21 @@ private struct PeriodGraphView: View {
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .frame(width: CGFloat(graph.weeks.count) * step.width, height: Self.monthRow, alignment: .topLeading)
+                .frame(width: CGFloat(graph.weeks.count) * step.width, height: Self.labelRow, alignment: .topLeading)
                 heatmapCanvas(cell: cell, step: step)
             }
         }
     }
 
     /// Every day drawn in one Canvas rather than a view per day: bordered when cells are big enough to show it, and
-    /// with its count centred in a font scaled to the cell (never below 7pt). Hovering reads the day under the pointer
+    /// with its count centred in a font scaled to the cell's shorter side (never below 7pt). Hovering reads the day under the pointer
     /// from its position.
     private func heatmapCanvas(cell: CGSize, step: CGSize) -> some View {
         let weeks = graph.weeks
         let palette = palette
         let side = min(cell.width, cell.height)
         let radius = min(4, side / 4)
-        let font = Font.system(size: max(7, (side * 0.5).rounded(.down)), weight: .semibold).monospacedDigit()
+        let font = Font.system(size: max(7, (side * 0.6).rounded(.down)), weight: .semibold).monospacedDigit()
         return Canvas { context, _ in
             for (column, days) in weeks.enumerated() {
                 for (row, day) in days.enumerated() {

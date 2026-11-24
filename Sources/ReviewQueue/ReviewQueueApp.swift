@@ -38,7 +38,7 @@ struct ReviewQueueApp: App {
         Window("Review statistics", id: StatsView.windowId) {
             StatsView(model: model)
         }
-        .defaultSize(width: StatsContent.width, height: 860)
+        .defaultSize(width: StatsContent.width, height: 780)
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
     }

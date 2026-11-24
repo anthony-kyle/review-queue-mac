@@ -413,6 +413,31 @@ public struct PeriodGraph: Equatable, Sendable {
     public let total: Int
 }
 
+/// The period graph's fixed geometry: one label row (weekdays or months) above a days area of the same height for every
+/// period, so switching period never moves what is below. Calendar rows share the days area up to a cap, and cells
+/// shorter than `compactBelow` put the date and count on one line.
+public enum GraphLayout {
+    public static let labelRow: Double = 16
+    public static let labelGap: Double = 3
+    public static let daysHeight: Double = 132
+    public static let calendarGap: Double = 3
+    public static let heatmapGap: Double = 2
+    public static let maxRow: Double = 34
+    public static let compactBelow: Double = 28
+
+    public static var blockHeight: Double { labelRow + labelGap + daysHeight }
+
+    /// The height of each of `rows` rows sharing the days area with `gap` between them, whole points, capped at `maxRow`.
+    public static func rowHeight(rows: Int, gap: Double) -> Double {
+        let count = Double(max(rows, 1))
+        return min(maxRow, ((daysHeight - (count - 1) * gap) / count).rounded(.down))
+    }
+
+    public static func isCompact(_ height: Double) -> Bool {
+        height < compactBelow
+    }
+}
+
 private let keptWeeks = 53
 
 /// The first day the history keeps: the start of the week 52 weeks before the one holding `today`.

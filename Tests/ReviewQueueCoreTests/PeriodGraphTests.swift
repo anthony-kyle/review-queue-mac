@@ -105,3 +105,27 @@ import Testing
         #expect(historyStart(today: today, calendar: utc(firstWeekday: 2)) == at("2025-11-24T00:00:00Z"))
     }
 }
+
+@Suite struct GraphLayoutTests {
+    @Test func everyPeriodSharesOneBlockAndRowsFillItUpToTheCap() {
+        #expect(GraphLayout.blockHeight == 151)
+        let row = { (rows: Int) in GraphLayout.rowHeight(rows: rows, gap: GraphLayout.calendarGap) }
+        #expect(row(1) == 34)
+        #expect(row(2) == 34)
+        #expect(row(3) == 34)
+        #expect(row(5) == 24)
+        #expect(row(6) == 19)
+        #expect(GraphLayout.rowHeight(rows: 7, gap: GraphLayout.heatmapGap) == 17)
+        #expect(row(0) == 34)
+        for rows in 1...6 {
+            #expect(Double(rows) * row(rows) + Double(rows - 1) * GraphLayout.calendarGap <= GraphLayout.daysHeight)
+        }
+    }
+
+    @Test func shortCellsPutDateAndCountOnOneLine() {
+        #expect(GraphLayout.isCompact(19))
+        #expect(GraphLayout.isCompact(27.9))
+        #expect(!GraphLayout.isCompact(28))
+        #expect(!GraphLayout.isCompact(34))
+    }
+}
