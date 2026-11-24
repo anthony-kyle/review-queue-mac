@@ -111,7 +111,7 @@ import Testing
         #expect(demo.settings.sprintTeam == DemoData.linearTeams.last)
         #expect(currentCycle(demo.cycles, now: now)?.number == 42)
         #expect(defaultPeriod(isSprintOffered: true, cycles: demo.cycles, now: now) == .sprint)
-        let report = StatsReport(history: demo.reviewHistory, period: .sprint, offset: 0, cycles: demo.cycles, now: now, calendar: .current)
+        let report = StatsReport(history: demo.reviewHistory.counted(demo.settings), period: .sprint, offset: 0, cycles: demo.cycles, now: now, calendar: .current)
         #expect(report.span.cycle?.number == 42)
         #expect(report.span.canGoBack)
         #expect(report.mine?.reviews ?? 0 > 0)

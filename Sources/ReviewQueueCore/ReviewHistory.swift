@@ -41,13 +41,15 @@ public struct HistoryRequest: Codable, Equatable, Sendable {
     }
 }
 
-/// A PR in a team repo with what review counts and response times need: when it opened, was last marked ready and
-/// was merged or closed, which review requests were made and removed and when, and every submitted review. `repo` is
-/// `owner/name`.
+/// A PR in a team repo with what review counts and response times need: who opened it and whether GitHub called them a
+/// bot, when it opened, was last marked ready and was merged or closed, which review requests were made and removed and
+/// when, and every submitted review. `repo` is `owner/name`. `authorIsBot` is nil in caches written before it was
+/// recorded; `author` then decides on its own.
 public struct HistoryPr: Codable, Equatable, Sendable {
     public let repo: String
     public let number: Int
     public let author: String
+    public let authorIsBot: Bool?
     public let createdAt: Date
     public let updatedAt: Date
     public let readyAt: Date?
@@ -61,6 +63,7 @@ public struct HistoryPr: Codable, Equatable, Sendable {
         repo: String,
         number: Int,
         author: String,
+        authorIsBot: Bool? = nil,
         createdAt: Date,
         updatedAt: Date,
         readyAt: Date? = nil,
@@ -73,6 +76,7 @@ public struct HistoryPr: Codable, Equatable, Sendable {
         self.repo = repo
         self.number = number
         self.author = author
+        self.authorIsBot = authorIsBot
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.readyAt = readyAt
@@ -84,6 +88,13 @@ public struct HistoryPr: Codable, Equatable, Sendable {
     }
 
     public var key: String { "\(repo)#\(number)" }
+
+    /// Whether the statistics count this PR: by a human, or by a bot `settings` allows. GitHub's GraphQL names bots
+    /// without `[bot]`, so a missing `authorIsBot` falls back to the login on its own.
+    public func isCounted(_ settings: QueueSettings) -> Bool {
+        let author = Author(login: author, typename: authorIsBot == true ? "Bot" : "User")
+        return !isBot(author) || isAllowedBot(author, settings)
+    }
 
     /// When the PR became reviewable: its last ready-for-review event, else its creation.
     public var readyTime: Date { readyAt ?? createdAt }
@@ -170,6 +181,13 @@ public struct ReviewHistory: Codable, Equatable, Sendable {
         return next
     }
 
+    /// The history the statistics read: only PRs `settings` counts, so bots that aren't allowed never reach any figure.
+    public func counted(_ settings: QueueSettings) -> ReviewHistory {
+        var next = self
+        next.prs = prs.filter { $0.isCounted(settings) }
+        return next
+    }
+
     /// Only PRs and fetch marks for `repos`, and only PRs updated on or after `start`.
     public func pruned(repos: Set<String>, start: Date) -> ReviewHistory {
         var next = self
@@ -238,6 +256,7 @@ func historyPr(_ node: HistoryNode, repo: String) -> HistoryPr? {
         repo: repo,
         number: node.number,
         author: node.author?.login ?? "ghost",
+        authorIsBot: node.author.map { isBot($0) },
         createdAt: createdAt,
         updatedAt: updatedAt,
         readyAt: events.filter { $0.typename == "ReadyForReviewEvent" }.compactMap { $0.createdAt.flatMap(isoDate) }.max(),

@@ -1,6 +1,6 @@
 import Foundation
 
-private let botLogins: Set<String> = ["cursor", "dependabot", "renovate", "github-actions", "copilot"]
+private let botLogins: Set<String> = ["cursor", "dependabot", "renovate", "github-actions", "copilot", "copilot-swe-agent"]
 private let decisiveStates: Set<String> = ["APPROVED", "CHANGES_REQUESTED", "DISMISSED"]
 private let passingConclusions: Set<String> = ["SUCCESS", "SKIPPED"]
 

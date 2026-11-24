@@ -62,8 +62,8 @@ import Testing
         let demo = DemoData(now: demoNow)
         for period in StatsPeriod.allCases {
             for offset in [0, -1] {
-                let report = StatsReport(history: demo.reviewHistory, period: period, offset: offset, cycles: demo.cycles, now: demoNow, calendar: .current)
-                let last = trend(period, endingAt: offset, history: demo.reviewHistory, cycles: demo.cycles, now: demoNow, calendar: .current).last
+                let report = StatsReport(history: demo.reviewHistory.counted(demo.settings), period: period, offset: offset, cycles: demo.cycles, now: demoNow, calendar: .current)
+                let last = trend(period, endingAt: offset, history: demo.reviewHistory.counted(demo.settings), cycles: demo.cycles, now: demoNow, calendar: .current).last
                 #expect(last == report.stats)
                 for metric in StatsMetric.allCases {
                     #expect(last?.benchmark(metric) == report.benchmark(metric))
@@ -75,7 +75,7 @@ import Testing
     @Test func demoTrendVaries() {
         let demoNow = Date(timeIntervalSince1970: 1_800_000_000)
         let demo = DemoData(now: demoNow)
-        let sprints = trend(.sprint, endingAt: 0, history: demo.reviewHistory, cycles: demo.cycles, now: demoNow, calendar: .current)
+        let sprints = trend(.sprint, endingAt: 0, history: demo.reviewHistory.counted(demo.settings), cycles: demo.cycles, now: demoNow, calendar: .current)
         #expect(sprints.count == 12)
         #expect(Set(sprints.compactMap { $0.mine?.reviews }).count >= 4)
     }

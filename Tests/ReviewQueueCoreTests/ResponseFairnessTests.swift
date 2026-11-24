@@ -111,12 +111,12 @@ import Testing
     @Test func demoHistoryHasUnansweredRequestsAndUnblockedPrs() {
         let now = Date(timeIntervalSince1970: 1_800_000_000)
         let demo = DemoData(now: now)
-        let year = StatsReport(history: demo.reviewHistory, period: .quarter, offset: -1, now: now, calendar: .current)
+        let year = StatsReport(history: demo.reviewHistory.counted(demo.settings), period: .quarter, offset: -1, now: now, calendar: .current)
         #expect((year.mine?.unanswered ?? 0) > 0)
         #expect(year.rows.contains { $0.unblocked > 0 })
         #expect(year.mine?.medianResponse != nil)
         #expect(demo.reviewHistory.prs.contains { $0.requests.contains { $0.team != nil } })
-        let sprint = StatsReport(history: demo.reviewHistory, period: .sprint, offset: 0, cycles: demo.cycles, now: now, calendar: .current)
+        let sprint = StatsReport(history: demo.reviewHistory.counted(demo.settings), period: .sprint, offset: 0, cycles: demo.cycles, now: now, calendar: .current)
         #expect((sprint.mine?.unanswered ?? 0) <= 5)
         #expect((sprint.mine?.medianResponse ?? .infinity) < 72 * hour)
     }

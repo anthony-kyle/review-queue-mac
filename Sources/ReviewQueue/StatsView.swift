@@ -41,7 +41,8 @@ struct StatsContent: View {
         let cycles = isSprintOffered ? model.sprintCycles : []
         let fallback = defaultPeriod(isSprintOffered: isSprintOffered, cycles: cycles, now: now)
         let period = picked.flatMap { $0 != .sprint || isSprintOffered ? $0 : nil } ?? fallback
-        let report = StatsReport(history: model.history, period: period, offset: offset, cycles: cycles, now: now, calendar: calendar)
+        let history = model.history.counted(model.settings)
+        let report = StatsReport(history: history, period: period, offset: offset, cycles: cycles, now: now, calendar: calendar)
         let title = periodTitle(report.span, period: period, calendar: calendar)
         let trendKey = TrendKey(
             period: period,
@@ -49,7 +50,8 @@ struct StatsContent: View {
             prs: model.history.prs.count,
             completedAt: model.history.completedAt,
             cycles: cycles.map(\.id),
-            me: model.history.me
+            me: model.history.me,
+            allowedBots: model.settings.allowedBotAuthors
         )
         VStack(alignment: .leading, spacing: 22) {
             header
@@ -97,7 +99,7 @@ struct StatsContent: View {
         .padding(24)
         .onChange(of: isSprintOffered) { offset = 0 }
         .task(id: trendKey) {
-            let points = trend(period, endingAt: offset, history: model.history, cycles: cycles, now: Date(), calendar: calendar)
+            let points = trend(period, endingAt: offset, history: history, cycles: cycles, now: Date(), calendar: calendar)
             trendCache = TrendCache(key: trendKey, points: points)
         }
         .frame(minWidth: Self.width, alignment: .leading)
@@ -183,8 +185,8 @@ private func axisLabel(_ span: PeriodSpan, period: StatsPeriod, calendar: Calend
     }
 }
 
-/// What the trend depends on, so it is computed once per change of period, offset, history or cycles rather than on
-/// every render.
+/// What the trend depends on, so it is computed once per change of period, offset, history, cycles or allowed bots
+/// rather than on every render.
 private struct TrendKey: Hashable {
     let period: StatsPeriod
     let offset: Int
@@ -192,6 +194,7 @@ private struct TrendKey: Hashable {
     let completedAt: Date?
     let cycles: [String]
     let me: String?
+    let allowedBots: [String]
 }
 
 private struct TrendCache {

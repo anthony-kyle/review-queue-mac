@@ -220,6 +220,7 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
             ))
         }
     }
+    prs += demoBotPrs(now: now)
     let members = demoReviewers.map(\.login)
     return ReviewHistory(
         me: DemoData.me,
@@ -228,6 +229,29 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
         prs: prs,
         completedAt: now.addingTimeInterval(-120)
     )
+}
+
+/// Weekly dependency bumps from `dependabot`, which isn't in the demo's allowed bot authors, each approved by you within
+/// the hour. The statistics must leave every one of them out.
+private func demoBotPrs(now: Date) -> [HistoryPr] {
+    let today = Calendar.current.startOfDay(for: now)
+    return (0..<52).compactMap { week in
+        let opened = (Calendar.current.date(byAdding: .day, value: -7 * week, to: today) ?? today).addingTimeInterval(-14 * 3600)
+        let approved = opened.addingTimeInterval(1800)
+        guard approved <= now else { return nil }
+        return HistoryPr(
+            repo: "\(DemoData.owner)/acme-web",
+            number: 900 + week,
+            author: "dependabot",
+            authorIsBot: true,
+            createdAt: opened,
+            updatedAt: approved,
+            mergedAt: approved,
+            closedAt: approved,
+            requests: [HistoryRequest(reviewer: DemoData.me, at: opened)],
+            reviews: [HistoryReview(author: DemoData.me, state: "APPROVED", submittedAt: approved)]
+        )
+    }
 }
 
 /// The Web team's two-week cycles, Linear style: cycle 42 started five days before `now`, with 30 before it and the
