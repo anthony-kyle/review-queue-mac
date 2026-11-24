@@ -3,6 +3,7 @@ import SwiftUI
 
 @main
 struct ReviewQueueApp: App {
+    @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var model: AppModel
 
     init() {
@@ -40,6 +41,14 @@ struct ReviewQueueApp: App {
         .defaultSize(width: StatsContent.width, height: 860)
         .windowResizability(.contentMinSize)
         .defaultLaunchBehavior(.suppressed)
+    }
+}
+
+/// Keeps the app running when its last window closes. With a `Window` scene in the app, SwiftUI otherwise terminates
+/// once that window closes, which for a menu bar app means closing Review statistics quits it.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        false
     }
 }
 
