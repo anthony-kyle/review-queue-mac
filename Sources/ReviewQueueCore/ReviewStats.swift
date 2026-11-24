@@ -2,6 +2,9 @@ import Foundation
 
 private let countedStates: Set<String> = ["APPROVED", "CHANGES_REQUESTED", "COMMENTED"]
 
+/// How long a ready PR must have gone without any review for its first reviewer to count as unblocking it.
+public let unblockedWait: TimeInterval = 72 * 60 * 60
+
 /// The span the statistics cover: a calendar period, or a Linear cycle of the chosen sprint team.
 public enum StatsPeriod: String, CaseIterable, Identifiable, Sendable {
     case sprint, week, month, quarter, year
@@ -44,32 +47,43 @@ public func periodInterval(_ period: StatsPeriod, offset: Int = 0, containing da
     return DateInterval(start: shifted, end: end)
 }
 
-/// One reviewer's numbers for a period. `reviews` counts distinct PR-days; `responseTimes` holds one entry per PR whose
-/// first review by this reviewer fell in the period.
+/// One reviewer's numbers for a period. `reviews` counts distinct PR-days. `responseTimes` holds one wait per PR whose
+/// response sample (see `responseSamples`) fell in the period, answered or not; `unanswered` counts the unanswered
+/// ones. `unblocked` counts PRs this reviewer was first to review after they had waited `unblockedWait`.
 public struct ReviewerStats: Equatable, Sendable {
     public let login: String
     public var reviews = 0
     public var approved = 0
     public var changesRequested = 0
     public var responseTimes: [TimeInterval] = []
+    public var unanswered = 0
+    public var unblocked = 0
 
-    public init(login: String, reviews: Int = 0, approved: Int = 0, changesRequested: Int = 0, responseTimes: [TimeInterval] = []) {
+    public init(
+        login: String,
+        reviews: Int = 0,
+        approved: Int = 0,
+        changesRequested: Int = 0,
+        responseTimes: [TimeInterval] = [],
+        unanswered: Int = 0,
+        unblocked: Int = 0
+    ) {
         self.login = login
         self.reviews = reviews
         self.approved = approved
         self.changesRequested = changesRequested
         self.responseTimes = responseTimes
+        self.unanswered = unanswered
+        self.unblocked = unblocked
     }
 
-    public var averageResponse: TimeInterval? {
-        responseTimes.isEmpty ? nil : responseTimes.reduce(0, +) / Double(responseTimes.count)
-    }
+    public var medianResponse: TimeInterval? { median(responseTimes) }
 }
 
 /// What the statistics compare, with how each reads from a reviewer's stats. Only response time is better lower, and
 /// only it can be missing.
 public enum StatsMetric: String, CaseIterable, Identifiable, Sendable {
-    case reviews, approved, changesRequested, response
+    case reviews, approved, changesRequested, response, unblocked
 
     public var id: String { rawValue }
 
@@ -78,7 +92,8 @@ public enum StatsMetric: String, CaseIterable, Identifiable, Sendable {
         case .reviews: "Reviews done"
         case .approved: "PRs approved"
         case .changesRequested: "Changes requested"
-        case .response: "Avg time to respond"
+        case .response: "Median time to respond"
+        case .unblocked: "Unblocked"
         }
     }
 
@@ -89,7 +104,8 @@ public enum StatsMetric: String, CaseIterable, Identifiable, Sendable {
         case .reviews: Double(stats.reviews)
         case .approved: Double(stats.approved)
         case .changesRequested: Double(stats.changesRequested)
-        case .response: stats.averageResponse
+        case .response: stats.medianResponse
+        case .unblocked: Double(stats.unblocked)
         }
     }
 
@@ -123,15 +139,66 @@ func countedReviews(_ pr: HistoryPr) -> [HistoryReview] {
     pr.reviews.filter { !$0.isBot && $0.author != pr.author && countedStates.contains($0.state) }
 }
 
-/// How long `reviewer` took to answer a PR, from the later of the PR becoming ready (its last ready-for-review event,
-/// else its creation) and the reviewer's earliest review request, to `firstReview`. A request after the first review
-/// falls back to the ready time; never negative.
-func responseTime(_ pr: HistoryPr, reviewer: String, firstReview: Date) -> TimeInterval {
-    let ready = pr.readyAt ?? pr.createdAt
-    let requested = pr.requests.filter { $0.reviewer == reviewer }.map(\.at).min()
-    let latest = max(ready, requested ?? ready)
-    let start = latest > firstReview ? ready : latest
-    return max(0, firstReview.timeIntervalSince(start))
+/// One person's response on one PR: how long they took (or have left it), and when that counts.
+struct ResponseSample: Equatable, Sendable {
+    let reviewer: String
+    let wait: TimeInterval
+    let at: Date
+    let isAnswered: Bool
+}
+
+/// Everyone's response samples on a PR, at most one per person.
+///
+/// - Answered: each human reviewer other than the author, from the later of the PR becoming ready and their earliest
+///   request (their own or a team's they are on) to their first review, falling back to the ready time when the
+///   request came after that review. Counted when they first reviewed.
+/// - Unanswered: someone asked by name who never reviewed waits from the request until it was removed, the PR merged
+///   or closed, or `now`. A team request counts for every member in `teams` (unknown teams are ignored), is answered
+///   once any member reviews, and otherwise gives every member an unanswered wait ending the same way. Counted when the
+///   wait ended.
+///
+/// Requests made before the PR was ready start at the ready time.
+func responseSamples(_ pr: HistoryPr, teams: [String: [String]], now: Date) -> [ResponseSample] {
+    let ready = pr.readyTime
+    let firstReview = Dictionary(grouping: countedReviews(pr), by: \.author).compactMapValues { $0.map(\.submittedAt).min() }
+    func targets(_ request: HistoryRequest) -> [String] {
+        let people = request.reviewer.map { [$0] } ?? request.team.flatMap { teams[$0] } ?? []
+        return people.filter { $0 != pr.author && !$0.hasSuffix("[bot]") }
+    }
+    let requests = pr.requests.sorted { $0.at < $1.at }
+    var askedAt: [String: Date] = [:]
+    for request in requests {
+        for person in targets(request) where askedAt[person] == nil { askedAt[person] = max(request.at, ready) }
+    }
+    let answered = firstReview.map { reviewer, first in
+        let asked = askedAt[reviewer] ?? ready
+        let start = asked > first ? ready : asked
+        return ResponseSample(reviewer: reviewer, wait: max(0, first.timeIntervalSince(start)), at: first, isAnswered: true)
+    }
+    var waiting: [String: ResponseSample] = [:]
+    func addUnanswered(_ person: String, for request: HistoryRequest) {
+        guard waiting[person] == nil else { return }
+        let start = max(request.at, ready)
+        let removed = pr.removals.filter { $0.isSameTarget(as: request) && $0.at >= request.at }.map(\.at).min()
+        let end = max(start, [removed, pr.endedAt, now].compactMap(\.self).min() ?? now)
+        waiting[person] = ResponseSample(reviewer: person, wait: end.timeIntervalSince(start), at: end, isAnswered: false)
+    }
+    for request in requests where request.reviewer != nil {
+        for person in targets(request) where firstReview[person] == nil { addUnanswered(person, for: request) }
+    }
+    for request in requests where request.team != nil {
+        let members = targets(request)
+        guard !members.contains(where: { firstReview[$0] != nil }) else { continue }
+        for person in members { addUnanswered(person, for: request) }
+    }
+    return (answered + waiting.values).sorted { ($0.reviewer, $0.at) < ($1.reviewer, $1.at) }
+}
+
+/// The reviewer who first reviewed a PR that had waited at least `unblockedWait` since it was ready, and when.
+func unblocker(_ pr: HistoryPr) -> HistoryReview? {
+    guard let first = countedReviews(pr).min(by: { $0.submittedAt < $1.submittedAt }),
+          first.submittedAt.timeIntervalSince(pr.readyTime) >= unblockedWait else { return nil }
+    return first
 }
 
 /// The local days `reviewer` reviewed each PR on, keyed by start of day, counting each PR once a day.
@@ -144,8 +211,16 @@ public func dailyReviewCounts(_ prs: [HistoryPr], reviewer: String, calendar: Ca
     return counts
 }
 
-/// Each of `reviewers`' stats in `interval`, in the given order, with zeros for anyone who did not review there.
-public func reviewerStats(_ prs: [HistoryPr], in interval: DateInterval, reviewers: [String], calendar: Calendar) -> [ReviewerStats] {
+/// Each of `reviewers`' stats in `interval`, in the given order, with zeros for anyone who did not review there. Team
+/// requests expand through `teams` (members by `org/slug`); waits still running end at `now`.
+public func reviewerStats(
+    _ prs: [HistoryPr],
+    in interval: DateInterval,
+    reviewers: [String],
+    teams: [String: [String]],
+    now: Date,
+    calendar: Calendar
+) -> [ReviewerStats] {
     var stats = Dictionary(reviewers.map { ($0, ReviewerStats(login: $0)) }, uniquingKeysWith: { first, _ in first })
     for pr in prs {
         for (reviewer, reviews) in Dictionary(grouping: countedReviews(pr), by: \.author) where stats[reviewer] != nil {
@@ -153,10 +228,12 @@ public func reviewerStats(_ prs: [HistoryPr], in interval: DateInterval, reviewe
             stats[reviewer]?.reviews += Set(inside.map { calendar.startOfDay(for: $0.submittedAt) }).count
             if inside.contains(where: { $0.state == "APPROVED" }) { stats[reviewer]?.approved += 1 }
             if inside.contains(where: { $0.state == "CHANGES_REQUESTED" }) { stats[reviewer]?.changesRequested += 1 }
-            if let first = reviews.map(\.submittedAt).min(), interval.holds(first) {
-                stats[reviewer]?.responseTimes.append(responseTime(pr, reviewer: reviewer, firstReview: first))
-            }
         }
+        for sample in responseSamples(pr, teams: teams, now: now) where stats[sample.reviewer] != nil && interval.holds(sample.at) {
+            stats[sample.reviewer]?.responseTimes.append(sample.wait)
+            if !sample.isAnswered { stats[sample.reviewer]?.unanswered += 1 }
+        }
+        if let first = unblocker(pr), interval.holds(first.submittedAt) { stats[first.author]?.unblocked += 1 }
     }
     return unique(reviewers).compactMap { stats[$0] }
 }
@@ -342,11 +419,11 @@ public struct PeriodStats: Equatable, Sendable {
     public let me: String?
     public let rows: [ReviewerStats]
 
-    public init(history: ReviewHistory, span: PeriodSpan, calendar: Calendar) {
+    public init(history: ReviewHistory, span: PeriodSpan, now: Date, calendar: Calendar) {
         self.span = span
         me = history.me
         let cohort = unique(history.members + (history.me.map { [$0] } ?? [])).filter { !$0.hasSuffix("[bot]") }
-        rows = reviewerStats(history.prs, in: span.interval, reviewers: cohort, calendar: calendar)
+        rows = reviewerStats(history.prs, in: span.interval, reviewers: cohort, teams: history.teamMembers, now: now, calendar: calendar)
     }
 
     public var mine: ReviewerStats? { rows.first { $0.login == me } }
@@ -369,7 +446,7 @@ public struct StatsReport: Equatable, Sendable {
     public let graph: PeriodGraph
 
     public init(history: ReviewHistory, period: StatsPeriod, offset: Int, cycles: [LinearCycle] = [], now: Date, calendar: Calendar) {
-        stats = PeriodStats(history: history, span: periodSpan(period, offset: offset, cycles: cycles, now: now, calendar: calendar), calendar: calendar)
+        stats = PeriodStats(history: history, span: periodSpan(period, offset: offset, cycles: cycles, now: now, calendar: calendar), now: now, calendar: calendar)
         let counts = history.me.map { dailyReviewCounts(history.prs, reviewer: $0, calendar: calendar) } ?? [:]
         graph = periodGraph(stats.span.interval, style: GraphStyle(period), counts: counts, thresholds: heatmapThresholds(Array(counts.values)), today: now, calendar: calendar)
     }
@@ -409,5 +486,5 @@ public func trend(_ period: StatsPeriod, endingAt offset: Int, history: ReviewHi
         guard span.canGoBack else { break }
         step -= 1
     }
-    return spans.map { PeriodStats(history: history, span: $0, calendar: calendar) }
+    return spans.map { PeriodStats(history: history, span: $0, now: now, calendar: calendar) }
 }

@@ -79,7 +79,8 @@ public actor GitHubClient {
     private static let closureBatch = 50
     private static let historyPage = 25
     private static let historyRateFloor = 200
-    private static let historyFields = "number createdAt updatedAt author { login __typename } timelineItems(first: 100, itemTypes: [READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT]) { nodes { __typename ... on ReadyForReviewEvent { createdAt } ... on ReviewRequestedEvent { createdAt requestedReviewer { ... on User { login } } } } } reviews(first: 100) { nodes { author { login __typename } state submittedAt } }"
+    private static let requestedReviewer = "requestedReviewer { ... on User { login } ... on Team { slug organization { login } } }"
+    private static let historyFields = "number createdAt updatedAt mergedAt closedAt author { login __typename } timelineItems(first: 100, itemTypes: [READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) { nodes { __typename ... on ReadyForReviewEvent { createdAt } ... on ReviewRequestedEvent { createdAt \(requestedReviewer) } ... on ReviewRequestRemovedEvent { createdAt \(requestedReviewer) } } } reviews(first: 100) { nodes { author { login __typename } state submittedAt } }"
     private static let queueFragment = """
         fragment D on PullRequest {
           headRefOid
@@ -123,7 +124,7 @@ public actor GitHubClient {
         let (repos, members) = try await teamScope(teams, access: access)
         let candidates = try await listCandidates(repos, me: me, settings: settings)
         let prs = try await detailed(candidates, fragment: Self.queueFragment).map { queuePr($0, detail: $1, me: me) }
-        let people = Set(members + prs.map(\.author)).filter { $0 != me }.sorted()
+        let people = Set(members.values.joined() + prs.map(\.author)).filter { $0 != me }.sorted()
         return FetchResult(prs: prs, people: people, me: me)
     }
 
@@ -177,7 +178,8 @@ public actor GitHubClient {
         let names = repos.map(\.fullName)
         var history = cached.pruned(repos: Set(names), start: start)
         history.me = me
-        history.members = members.filter { !$0.hasSuffix("[bot]") }.sorted()
+        history.teamMembers = members.mapValues { $0.filter { !$0.hasSuffix("[bot]") }.sorted() }
+        history.members = Set(history.teamMembers.values.joined()).sorted()
         await progress(0, repos.count)
         for (done, repo) in repos.enumerated() {
             let fetched: RepoHistory
@@ -218,15 +220,16 @@ public actor GitHubClient {
         return RepoHistory(prs: prs, resetAt: nil)
     }
 
-    /// The chosen teams' repos (held at `access`, unarchived) and members, each unioned across `teams`.
-    private func teamScope(_ teams: [String], access: RepoAccess) async throws -> (repos: [Repo], members: [String]) {
+    /// The chosen teams' repos (held at `access`, unarchived, unioned across `teams`) and each team's members, keyed by
+    /// `org/slug`.
+    private func teamScope(_ teams: [String], access: RepoAccess) async throws -> (repos: [Repo], members: [String: [String]]) {
         var repos: [Repo] = []
-        var members: [String] = []
+        var members: [String: [String]] = [:]
         for team in teams {
             repos += try await teamRepos(team, access: access)
-            members += try await teamMembers(team)
+            members[team] = try await teamMembers(team)
         }
-        return (unique(repos), unique(members))
+        return (unique(repos), members)
     }
 
     private func viewerLogin() async throws -> String {

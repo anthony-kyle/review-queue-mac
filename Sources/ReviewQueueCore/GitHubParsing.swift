@@ -75,6 +75,7 @@ struct CommentConnection: Decodable, Sendable {
 struct Reviewer: Decodable, Sendable {
     var login: String?
     var slug: String?
+    var organization: Author?
 }
 
 struct ReviewRequestNode: Decodable, Sendable {

@@ -162,15 +162,18 @@ private let demoReviewers = [
 ]
 
 /// A year of made-up review history for the statistics window: a few PRs each weekday (rarely one at a weekend) in the
-/// demo repos, each picked up by teammates at their own rate and speed, mostly approving, sometimes requesting changes
-/// and approving the next day. A fixed seed keeps it the same on every run; times are offsets from `now`, and anything
-/// that would land after `now` is left out.
+/// demo repos, asked of the web team as a whole or of teammates by name, picked up at each one's own rate and speed,
+/// mostly approving, sometimes requesting changes and approving the next day. Some named requests go unanswered, a few
+/// PRs sit three days or more before anyone looks, PRs merge a while after their last review, and PRs nobody
+/// reviews are closed within a week. A fixed seed keeps it
+/// the same on every run; times are offsets from `now`, and anything that would land after `now` is left out.
 private func demoReviewHistory(now: Date) -> ReviewHistory {
     var random = SplitMix(seed: 2026)
     var numbers: [String: Int] = [:]
     var prs: [HistoryPr] = []
     let today = Calendar.current.startOfDay(for: now)
     let hour: TimeInterval = 3600
+    let team = "\(DemoData.owner)/web-team"
     for daysAgo in stride(from: 370, through: 0, by: -1) {
         let day = Calendar.current.date(byAdding: .day, value: -daysAgo, to: today) ?? today
         let count = Calendar.current.isDateInWeekend(day) ? (random.chance(0.15) ? 1 : 0) : 1 + random.below(4)
@@ -181,12 +184,15 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
             let author = demoReviewers[random.below(demoReviewers.count)].login
             let created = day.addingTimeInterval((9 + random.unit() * 8) * hour)
             let ready = random.chance(0.2) ? created.addingTimeInterval((1 + random.unit() * 20) * hour) : nil
-            var requests: [HistoryRequest] = []
+            let isTeamRequest = random.chance(0.3)
+            let sitsFor = random.chance(0.08) ? (72 + random.unit() * 48) * hour : 0
+            var requests = isTeamRequest ? [HistoryRequest(team: team, at: max(ready ?? created, created))] : []
             var reviews: [HistoryReview] = []
             for reviewer in demoReviewers where reviewer.login != author && random.chance(reviewer.pickUp) {
                 let asked = max(ready ?? created, random.chance(0.8) ? created : created.addingTimeInterval(hour))
-                requests.append(HistoryRequest(reviewer: reviewer.login, at: asked))
-                let first = asked.addingTimeInterval(reviewer.hours * (0.3 + random.unit() * 1.4) * hour)
+                if !isTeamRequest { requests.append(HistoryRequest(reviewer: reviewer.login, at: asked)) }
+                guard isTeamRequest || !random.chance(0.12) else { continue }
+                let first = asked.addingTimeInterval(sitsFor + reviewer.hours * (0.3 + random.unit() * 1.4) * hour)
                 let roll = random.unit()
                 let state = roll < 0.62 ? "APPROVED" : roll < 0.82 ? "CHANGES_REQUESTED" : "COMMENTED"
                 reviews.append(HistoryReview(author: reviewer.login, state: state, submittedAt: first))
@@ -196,21 +202,29 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
             }
             reviews = reviews.filter { $0.submittedAt <= now }
             guard created <= now else { continue }
+            let lastReview = reviews.map(\.submittedAt).max()
+            let merged = lastReview.map { $0.addingTimeInterval((2 + random.unit() * 18) * hour) }.flatMap { $0 <= now ? $0 : nil }
+            let abandoned = lastReview == nil ? created.addingTimeInterval((2 + random.unit() * 5) * 24 * hour) : nil
+            let closed = merged ?? abandoned.flatMap { $0 <= now ? $0 : nil }
             prs.append(HistoryPr(
                 repo: "\(DemoData.owner)/\(repo)",
                 number: number,
                 author: author,
                 createdAt: created,
-                updatedAt: reviews.map(\.submittedAt).max() ?? created,
+                updatedAt: closed ?? lastReview ?? created,
                 readyAt: ready.flatMap { $0 <= now ? $0 : nil },
+                mergedAt: merged,
+                closedAt: closed,
                 requests: requests.filter { $0.at <= now },
                 reviews: reviews
             ))
         }
     }
+    let members = demoReviewers.map(\.login)
     return ReviewHistory(
         me: DemoData.me,
-        members: demoReviewers.map(\.login).filter { $0 != DemoData.me },
+        members: members,
+        teamMembers: [team: members],
         prs: prs,
         completedAt: now.addingTimeInterval(-120)
     )

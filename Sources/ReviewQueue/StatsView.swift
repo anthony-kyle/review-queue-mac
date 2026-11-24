@@ -530,8 +530,8 @@ private struct PeriodGraphView: View {
     }
 }
 
-/// One metric: your value, the team median, and your rank. Response time has no rank until you have reviewed a PR in
-/// the period.
+/// One metric: your value, the team median, and your rank. Response time has no rank until you have a response sample
+/// in the period, and also shows how many of your samples there are unanswered requests.
 private struct MetricCard: View {
     let metric: StatsMetric
     let mine: ReviewerStats?
@@ -545,6 +545,9 @@ private struct MetricCard: View {
                 .monospacedDigit()
             Text("Team median \(metric.format(benchmark.median))").font(.callout)
             Text(standing).font(.callout).foregroundStyle(.secondary)
+            if metric == .response, let unanswered = mine?.unanswered {
+                Text("\(unanswered) unanswered").font(.callout).foregroundStyle(unanswered > 0 ? Color.orange : Color.secondary)
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -553,7 +556,7 @@ private struct MetricCard: View {
 
     private var standing: String {
         guard let rank = benchmark.rank, let top = benchmark.topPercent else {
-            return metric == .response ? "No first reviews to time" : "No team to compare"
+            return metric == .response ? "No responses to time" : "No team to compare"
         }
         return "\(rankText(rank, of: benchmark.cohort)) · Top \(top)%"
     }
@@ -562,7 +565,7 @@ private struct MetricCard: View {
 /// Everyone in the teams with the period's numbers, sortable by any column (click again to reverse), with your row
 /// highlighted.
 private struct LeaderboardView: View {
-    private static let column: CGFloat = 150
+    private static let column: CGFloat = 128
 
     let rows: [ReviewerStats]
     let me: String?

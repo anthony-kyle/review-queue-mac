@@ -39,7 +39,7 @@ import Testing
             pr(1, reviews: [review("me", "COMMENTED", "2026-11-02T09:00:00Z"), review("me", "APPROVED", "2026-11-02T17:00:00Z"), review("me", "COMMENTED", "2026-11-03T09:00:00Z")]),
             pr(2, reviews: [review("me", "CHANGES_REQUESTED", "2026-11-02T10:00:00Z")]),
         ]
-        let stats = reviewerStats(prs, in: november, reviewers: ["me"], calendar: utc())
+        let stats = reviewerStats(prs, in: november, reviewers: ["me"], teams: [:], now: farFuture, calendar: utc())
         #expect(stats.first?.reviews == 3)
         #expect(dailyReviewCounts(prs, reviewer: "me", calendar: utc()) == [at("2026-11-02T00:00:00Z"): 2, at("2026-11-03T00:00:00Z"): 1])
     }
@@ -50,7 +50,7 @@ import Testing
             pr(2, reviews: [review("me", "CHANGES_REQUESTED", "2026-11-02T09:00:00Z"), review("me", "APPROVED", "2026-11-03T09:00:00Z")]),
             pr(3, reviews: [review("me", "APPROVED", "2026-10-30T09:00:00Z")]),
         ]
-        let stats = reviewerStats(prs, in: november, reviewers: ["me"], calendar: utc()).first
+        let stats = reviewerStats(prs, in: november, reviewers: ["me"], teams: [:], now: farFuture, calendar: utc()).first
         #expect(stats?.approved == 2)
         #expect(stats?.changesRequested == 1)
     }
@@ -64,7 +64,7 @@ import Testing
                 HistoryReview(author: "renovate[bot]", isBot: true, state: "APPROVED", submittedAt: at("2026-11-02T09:00:00Z")),
             ]),
         ]
-        let stats = reviewerStats(prs, in: november, reviewers: ["me", "renovate[bot]"], calendar: utc())
+        let stats = reviewerStats(prs, in: november, reviewers: ["me", "renovate[bot]"], teams: [:], now: farFuture, calendar: utc())
         #expect(stats.map(\.reviews) == [0, 0])
         #expect(stats.allSatisfy { $0.responseTimes.isEmpty })
     }
@@ -73,17 +73,17 @@ import Testing
         let created = at("2026-11-02T09:00:00Z")
         let first = at("2026-11-02T15:00:00Z")
         let base = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first)
-        #expect(responseTime(base, reviewer: "me", firstReview: first) == 6 * hour)
+        #expect(answeredWait(base, by: "me", at: first) == 6 * hour)
         let requested = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, requests: [
             HistoryRequest(reviewer: "me", at: at("2026-11-02T13:00:00Z")),
             HistoryRequest(reviewer: "me", at: at("2026-11-02T14:00:00Z")),
             HistoryRequest(reviewer: "other", at: at("2026-11-02T14:30:00Z")),
         ])
-        #expect(responseTime(requested, reviewer: "me", firstReview: first) == 2 * hour)
+        #expect(answeredWait(requested, by: "me", at: first) == 2 * hour)
         let readyLater = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, readyAt: at("2026-11-02T14:00:00Z"), requests: [
             HistoryRequest(reviewer: "me", at: at("2026-11-02T10:00:00Z")),
         ])
-        #expect(responseTime(readyLater, reviewer: "me", firstReview: first) == hour)
+        #expect(answeredWait(readyLater, by: "me", at: first) == hour)
     }
 
     @Test func responseFallsBackToReadyWhenRequestedAfterReviewingAndNeverGoesNegative() {
@@ -92,9 +92,9 @@ import Testing
         let lateRequest = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, requests: [
             HistoryRequest(reviewer: "me", at: at("2026-11-02T13:00:00Z")),
         ])
-        #expect(responseTime(lateRequest, reviewer: "me", firstReview: first) == 3 * hour)
+        #expect(answeredWait(lateRequest, by: "me", at: first) == 3 * hour)
         let readiedAfter = HistoryPr(repo: "o/r", number: 1, author: "a", createdAt: created, updatedAt: first, readyAt: at("2026-11-02T13:00:00Z"))
-        #expect(responseTime(readiedAfter, reviewer: "me", firstReview: first) == 0)
+        #expect(answeredWait(readiedAfter, by: "me", at: first) == 0)
     }
 
     @Test func responseTimeBelongsToThePeriodOfTheFirstReview() {
@@ -107,9 +107,9 @@ import Testing
                 review("me", "APPROVED", "2026-11-03T12:00:00Z"),
             ]),
         ]
-        let stats = reviewerStats(prs, in: november, reviewers: ["me"], calendar: utc()).first
+        let stats = reviewerStats(prs, in: november, reviewers: ["me"], teams: [:], now: farFuture, calendar: utc()).first
         #expect(stats?.responseTimes == [4 * hour])
-        #expect(stats?.averageResponse == 4 * hour)
+        #expect(stats?.medianResponse == 4 * hour)
         #expect(stats?.reviews == 2)
     }
 
@@ -185,6 +185,17 @@ import Testing
 }
 
 let hour: TimeInterval = 3600
+let farFuture = at("2030-01-01T00:00:00Z")
+
+/// `pr` with a comment by `reviewer` at `at`, and that reviewer's answered wait from its response samples.
+func answeredWait(_ pr: HistoryPr, by reviewer: String, at: Date, teams: [String: [String]] = [:]) -> TimeInterval? {
+    let reviewed = HistoryPr(
+        repo: pr.repo, number: pr.number, author: pr.author, createdAt: pr.createdAt, updatedAt: pr.updatedAt,
+        readyAt: pr.readyAt, mergedAt: pr.mergedAt, closedAt: pr.closedAt, requests: pr.requests, removals: pr.removals,
+        reviews: pr.reviews + [HistoryReview(author: reviewer, state: "COMMENTED", submittedAt: at)]
+    )
+    return responseSamples(reviewed, teams: teams, now: farFuture).first { $0.reviewer == reviewer && $0.isAnswered }?.wait
+}
 
 func at(_ iso: String) -> Date {
     (try? Date(iso, strategy: .iso8601)) ?? .distantPast
