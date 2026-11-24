@@ -60,10 +60,11 @@ import Testing
     @Test func theLastPointMatchesTheCards() {
         let demoNow = Date(timeIntervalSince1970: 1_800_000_000)
         let demo = DemoData(now: demoNow)
+        let index = StatsIndex(history: demo.reviewHistory.counted(demo.settings), now: demoNow, calendar: .current)
         for period in StatsPeriod.allCases {
             for offset in [0, -1] {
-                let report = StatsReport(history: demo.reviewHistory.counted(demo.settings), period: period, offset: offset, cycles: demo.cycles, now: demoNow, calendar: .current)
-                let last = trend(period, endingAt: offset, history: demo.reviewHistory.counted(demo.settings), cycles: demo.cycles, now: demoNow, calendar: .current).last
+                let report = StatsReport(index: index, period: period, offset: offset, cycles: demo.cycles)
+                let last = trend(period, endingAt: offset, index: index, cycles: demo.cycles).last
                 #expect(last == report.stats)
                 for metric in StatsMetric.allCases {
                     #expect(last?.benchmark(metric) == report.benchmark(metric))

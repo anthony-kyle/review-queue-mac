@@ -201,10 +201,12 @@ func requestedReviewers(_ pr: HistoryPr, teams: [String: [String]]) -> [String: 
 /// still after `now`.
 func opportunities(_ pr: HistoryPr, teams: [String: [String]], now: Date, calendar: Calendar) -> [Opportunity] {
     let firstReview = Dictionary(grouping: countedReviews(pr), by: \.author).compactMapValues { $0.map(\.submittedAt).min() }
+    var deadlines: [Date: Date] = [:]
     return requestedReviewers(pr, teams: teams).compactMap { person, requests in
         guard let earliest = requests.map(\.at).min() else { return nil }
         let start = max(earliest, pr.readyTime)
-        let deadline = businessDeadline(from: start, calendar: calendar)
+        let deadline = deadlines[start] ?? businessDeadline(from: start, calendar: calendar)
+        deadlines[start] = deadline
         let first = firstReview[person]
         let wait = first.map { max(0, $0.timeIntervalSince(start)) }
         if let first, first <= deadline {

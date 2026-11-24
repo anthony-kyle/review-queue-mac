@@ -21,12 +21,15 @@ struct StatsView: View {
     }
 }
 
-/// Header with refresh and progress, the selected period's graph, the period picker, your metrics against the team's,
-/// and one panel below them: the trend or the leaderboard, as saved in Settings, with the trend's metric menu beside
-/// the switch. Until a period is picked it follows the default: Sprint while it is offered and a cycle is running, else
-/// Month, so it switches to Sprint once cycles arrive. Sprint is only listed while offered.
+/// The statistics page on one grid: every section shares the same 24pt inset and full width. From the top: the title
+/// bar with Refresh, the period controls that drive everything below, the period's graph, one row of equal-height
+/// metric cards, and one panel with the trend or the leaderboard (as saved in Settings) and the trend's metric menu.
+/// Until a period is picked it follows the default: Sprint while it is offered and a cycle is running, else Month, so
+/// it switches to Sprint once cycles arrive. Sprint is only listed while offered.
 struct StatsContent: View {
     static let width: CGFloat = 900
+    static let inset: CGFloat = 24
+    static let gridWidth = width - 2 * inset
 
     let model: AppModel
     @State private var picked: StatsPeriod?
@@ -54,7 +57,7 @@ struct StatsContent: View {
         let report = StatsReport(index: index, period: period, offset: offset, cycles: cycles)
         let title = periodTitle(report.span, period: period, calendar: calendar)
         let trendKey = TrendKey(period: period, offset: offset, cycles: cycles.map(\.id), index: indexKey)
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 20) {
             header
             if model.settings.teams.isEmpty {
                 Text("Choose the GitHub teams whose PRs you review in Settings to see review statistics.").foregroundStyle(.secondary)
@@ -62,16 +65,20 @@ struct StatsContent: View {
             if !model.isHistoryLoading, let note = model.historyNote {
                 ErrorBanner(message: "GitHub: \(note)", color: .orange)
             }
-            PeriodGraphView(graph: report.graph, title: title, calendar: calendar)
-            periodBar(report, period: period, title: title, isSprintOffered: isSprintOffered)
-            if model.settings.sprintTeam != nil, let note = model.sprintNote {
-                Text(note).font(.caption).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                periodBar(report, period: period, title: title, isSprintOffered: isSprintOffered)
+                if model.settings.sprintTeam != nil, let note = model.sprintNote {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
             }
+            PeriodGraphView(graph: report.graph, title: title, calendar: calendar)
             HStack(alignment: .top, spacing: 8) {
                 ForEach(StatsMetric.allCases.filter(\.isRanked)) { metric in
                     MetricCard(metric: metric, mine: report.mine, benchmark: report.benchmark(metric))
+                        .frame(maxHeight: .infinity, alignment: .top)
                 }
             }
+            .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Picker("Panel", selection: settingsBinding(model, \.statsPanel)) {
@@ -79,7 +86,7 @@ struct StatsContent: View {
                     }
                     .pickerStyle(.segmented)
                     .labelsHidden()
-                    .frame(width: 220)
+                    .fixedSize()
                     Spacer()
                     if model.settings.statsPanel == .trend {
                         Picker("Metric", selection: $trendMetric) {
@@ -97,7 +104,9 @@ struct StatsContent: View {
                 }
             }
         }
-        .padding(24)
+        .frame(width: Self.gridWidth, alignment: .leading)
+        .padding(.horizontal, Self.inset)
+        .padding(.vertical, 20)
         .onChange(of: isSprintOffered) { offset = 0 }
         .task(id: indexKey) {
             if indexCache?.key != indexKey { indexCache = IndexCache(key: indexKey, index: index) }
@@ -105,7 +114,7 @@ struct StatsContent: View {
         .task(id: trendKey) {
             trendCache = TrendCache(key: trendKey, points: trend(period, endingAt: offset, index: index, cycles: cycles))
         }
-        .frame(minWidth: Self.width, alignment: .leading)
+        .frame(maxWidth: .infinity)
         .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -138,14 +147,14 @@ struct StatsContent: View {
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .frame(width: isSprintOffered ? 400 : 320)
+            .fixedSize()
             Spacer()
             IconButton(symbol: "chevron.left", help: "Previous \(period.label.lowercased())") { offset -= 1 }
                 .disabled(!report.span.canGoBack)
             Text(title)
                 .font(.headline)
                 .monospacedDigit()
-                .frame(minWidth: 190)
+                .frame(minWidth: 200)
             IconButton(symbol: "chevron.right", help: "Next \(period.label.lowercased())") { offset += 1 }
                 .disabled(!report.span.canGoForward)
         }
@@ -413,21 +422,20 @@ private struct IconButton: View {
     }
 }
 
-/// Your reviews over the selected period: the period's total and the hovered day's count, the days as a calendar of
-/// compact cells with the date top-left and the count bottom-right (Sprint, Week, Month) or a heatmap of small cells
-/// with month labels (Quarter, Year), and the Less/More legend. The days sit in a block as tall as a six-week month,
-/// so switching period never moves what is below. Future days are dim outlines; days outside the period are blank.
-/// Sizes come from the window's minimum content width, never from a measurement, so the graph can't feed back into the
-/// window's size.
+/// Your reviews over the selected period, across the full grid width: a header with the period's total, the hovered
+/// day and the Less/More legend, then the days as a calendar of numbered cells in week rows (Sprint, Week, Month) or a
+/// heatmap in week columns with month labels (Quarter, Year), every reviewed day showing its count. The days sit in a
+/// block as tall as a six-week month, so switching period never moves what is below. Future days are dim outlines;
+/// days outside the period are blank. Sizes come from the grid's fixed width, never from a measurement, so the graph
+/// can't feed back into the window's size.
 private struct PeriodGraphView: View {
     private static let gap: CGFloat = 3
-    private static let width = StatsContent.width - 48
+    private static let heatmapGap: CGFloat = 2
+    private static let width = StatsContent.gridWidth
     private static let rowLabelWidth: CGFloat = 30
-    private static let dayWidth: CGFloat = 112
     private static let dayHeight: CGFloat = 34
     private static let headerHeight: CGFloat = 16
     private static let blockHeight = headerHeight + gap + 6 * dayHeight + 5 * gap
-    private static let heatmapCell: CGFloat = 26
     private static let swatch: CGFloat = 12
     private static let monthRow: CGFloat = 14
 
@@ -441,15 +449,16 @@ private struct PeriodGraphView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text("\(counted(graph.total, "review")) in \(title)").font(.headline)
-                Spacer()
                 if let hovered {
-                    Text("\(counted(hovered.count, "review")) on \(hovered.date.formatted(date: .long, time: .omitted))")
+                    Text("\(counted(hovered.count, "review")) on \(hovered.date.formatted(date: .abbreviated, time: .omitted))")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
                 }
+                Spacer()
+                legend
             }
             Group {
                 switch graph.style {
@@ -457,19 +466,18 @@ private struct PeriodGraphView: View {
                 case .heatmap: heatmap
                 }
             }
-            .frame(height: Self.blockHeight, alignment: .top)
-            legend
+            .frame(width: Self.width, height: Self.blockHeight, alignment: .topLeading)
         }
     }
 
     private var calendarGrid: some View {
-        VStack(alignment: .leading, spacing: Self.gap) {
+        VStack(spacing: Self.gap) {
             HStack(spacing: Self.gap) {
                 ForEach(graph.weekdays.indices, id: \.self) { index in
                     Text(graph.weekdays[index])
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                        .frame(maxWidth: Self.dayWidth)
+                        .frame(maxWidth: .infinity)
                         .frame(height: Self.headerHeight)
                 }
             }
@@ -499,31 +507,32 @@ private struct PeriodGraphView: View {
             }
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
-            .frame(maxWidth: Self.dayWidth)
+            .frame(maxWidth: .infinity)
             .frame(height: Self.dayHeight)
             .background(DayCell(level: day.level, isFuture: day.isFuture, palette: palette, cornerRadius: 6))
             .contentShape(Rectangle())
             .onHover { isInside in hovered = isInside && !day.isFuture ? day : nil }
         } else {
-            Color.clear.frame(maxWidth: Self.dayWidth).frame(height: Self.dayHeight)
+            Color.clear.frame(maxWidth: .infinity).frame(height: Self.dayHeight)
         }
     }
 
-    /// The largest cell, up to the cap, that lets every week column fit the width and all seven rows fit the block.
-    private var heatmapCellSize: CGFloat {
+    /// Heatmap cells as wide as the grid allows for the number of weeks, and no taller than they are wide or than seven
+    /// rows fit the block: a quarter's cells come out wider than tall, a year's square.
+    private var heatmapCell: CGSize {
         let columns = CGFloat(max(graph.weeks.count, 1))
-        let byWidth = ((Self.width - Self.rowLabelWidth - 6) / columns).rounded(.down) - Self.gap
-        let byHeight = ((Self.blockHeight - Self.monthRow - 4) / 7).rounded(.down) - Self.gap
-        return min(Self.heatmapCell, max(min(byWidth, byHeight), 6))
+        let width = ((Self.width - Self.rowLabelWidth - 6) / columns).rounded(.down) - Self.heatmapGap
+        let byHeight = ((Self.blockHeight - Self.monthRow - 4) / 7).rounded(.down) - Self.heatmapGap
+        return CGSize(width: max(width, 6), height: max(min(width, byHeight), 6))
     }
 
     private var heatmap: some View {
-        let cell = heatmapCellSize
-        let step = cell + Self.gap
+        let cell = heatmapCell
+        let step = CGSize(width: cell.width + Self.heatmapGap, height: cell.height + Self.heatmapGap)
         return HStack(alignment: .top, spacing: 6) {
-            VStack(alignment: .trailing, spacing: Self.gap) {
+            VStack(alignment: .trailing, spacing: Self.heatmapGap) {
                 ForEach(0..<7, id: \.self) { row in
-                    Text(row % 2 == 1 ? graph.weekdays[row] : "").frame(height: cell)
+                    Text(graph.weekdays[row]).frame(height: cell.height)
                 }
             }
             .font(.caption2)
@@ -533,42 +542,48 @@ private struct PeriodGraphView: View {
             VStack(alignment: .leading, spacing: 4) {
                 ZStack(alignment: .topLeading) {
                     ForEach(graph.months, id: \.column) { month in
-                        Text(month.name).offset(x: CGFloat(month.column) * step)
+                        Text(month.name).offset(x: CGFloat(month.column) * step.width)
                     }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-                .frame(width: CGFloat(graph.weeks.count) * step, height: Self.monthRow, alignment: .topLeading)
+                .frame(width: CGFloat(graph.weeks.count) * step.width, height: Self.monthRow, alignment: .topLeading)
                 heatmapCanvas(cell: cell, step: step)
             }
         }
     }
 
-    /// Every day drawn in one Canvas rather than a view per day, bordered when cells are big enough to show it; hovering
-    /// reads the day under the pointer from its position.
-    private func heatmapCanvas(cell: CGFloat, step: CGFloat) -> some View {
+    /// Every day drawn in one Canvas rather than a view per day: bordered when cells are big enough to show it, and
+    /// with its count centred in a font scaled to the cell (never below 7pt). Hovering reads the day under the pointer
+    /// from its position.
+    private func heatmapCanvas(cell: CGSize, step: CGSize) -> some View {
         let weeks = graph.weeks
         let palette = palette
-        let radius = min(4, cell / 4)
+        let side = min(cell.width, cell.height)
+        let radius = min(4, side / 4)
+        let font = Font.system(size: max(7, (side * 0.5).rounded(.down)), weight: .semibold).monospacedDigit()
         return Canvas { context, _ in
             for (column, days) in weeks.enumerated() {
                 for (row, day) in days.enumerated() {
                     guard let day else { continue }
-                    let rect = CGRect(x: CGFloat(column) * step, y: CGFloat(row) * step, width: cell, height: cell)
+                    let rect = CGRect(x: CGFloat(column) * step.width, y: CGFloat(row) * step.height, width: cell.width, height: cell.height)
                     context.fill(Path(roundedRect: rect, cornerRadius: radius, style: .continuous), with: .color(palette.fill(day.level, isFuture: day.isFuture)))
-                    if cell >= 8 || day.isFuture {
+                    if side >= 8 || day.isFuture {
                         let border = Path(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), cornerRadius: radius, style: .continuous)
                         context.stroke(border, with: .color(palette.border(day.level, isFuture: day.isFuture)), lineWidth: 1)
+                    }
+                    if day.count > 0, !day.isFuture {
+                        context.draw(Text("\(day.count)").font(font).foregroundStyle(.primary), at: CGPoint(x: rect.midX, y: rect.midY))
                     }
                 }
             }
         }
-        .frame(width: CGFloat(weeks.count) * step - Self.gap, height: 7 * step - Self.gap)
+        .frame(width: CGFloat(weeks.count) * step.width - Self.heatmapGap, height: 7 * step.height - Self.heatmapGap)
         .onContinuousHover { phase in
             guard case let .active(point) = phase else { return hovered = nil }
-            let column = Int(point.x / step)
-            let row = Int(point.y / step)
-            let isOnCell = point.x.truncatingRemainder(dividingBy: step) < cell && point.y.truncatingRemainder(dividingBy: step) < cell
+            let column = Int(point.x / step.width)
+            let row = Int(point.y / step.height)
+            let isOnCell = point.x.truncatingRemainder(dividingBy: step.width) < cell.width && point.y.truncatingRemainder(dividingBy: step.height) < cell.height
             let day = isOnCell && weeks.indices.contains(column) && (0..<7).contains(row) ? weeks[column][row] : nil
             hovered = day?.isFuture == false ? day : nil
         }
@@ -576,7 +591,6 @@ private struct PeriodGraphView: View {
 
     private var legend: some View {
         HStack(spacing: 3) {
-            Spacer()
             Text("Less").padding(.trailing, 3)
             ForEach(0..<5, id: \.self) { level in
                 DayCell(level: level, isFuture: false, palette: palette, cornerRadius: 3)
@@ -625,49 +639,78 @@ private struct DayCell: View {
     }
 }
 
-/// One ranked metric: your value, the team median and your rank. Response rate also says how many requests you answered
-/// within a business day, how many you missed or still have pending, and your own median time to respond, which is
-/// never ranked.
+/// One ranked metric as a compact card: a one-line title, your value, and one comparison line with the team median and
+/// your rank as a pill, tinted green when you're in the top quarter. Response rate adds one line of requests answered
+/// on time and missed, and keeps your own median response and pending count in its tooltip, so every card stays the
+/// same height.
 private struct MetricCard: View {
     let metric: StatsMetric
     let mine: ReviewerStats?
     let benchmark: Benchmark
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(metric.title).font(.callout).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 4) {
+            Text(metric.title)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(mine.map(metric.text) ?? "—")
                 .font(.system(size: 26, weight: .semibold, design: .rounded))
                 .monospacedDigit()
-            if metric == .responseRate, let mine {
-                Text("\(mine.onTime) of \(mine.onTime + mine.late + mine.missed) within 1 business day")
-                    .font(.caption)
+            if metric == .responseRate {
+                rateLine.font(.caption2).lineLimit(1).minimumScaleFactor(0.75)
+            }
+            HStack(spacing: 6) {
+                Text("Team \(metric.format(benchmark.median))")
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .monospacedDigit()
+                    .lineLimit(1)
+                rankPill
             }
-            Text("Team median \(metric.format(benchmark.median))").font(.caption)
-            Text(standing).font(.caption).foregroundStyle(.secondary)
-            if metric == .responseRate, let mine {
-                if mine.missed > 0 { Text("\(mine.missed) missed").font(.caption).foregroundStyle(.orange) }
-                if mine.pending > 0 { Text("\(mine.pending) pending").font(.caption).foregroundStyle(.secondary) }
-                Text("Your median: \(StatsMetric.ownSpeed.text(mine))").font(.caption).foregroundStyle(.secondary)
-            }
+            .font(.caption)
         }
         .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(.fill.quinary, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .help(tooltip)
     }
 
-    private var standing: String {
-        guard let rank = benchmark.rank, let top = benchmark.topPercent else {
-            return metric == .responseRate ? "No requests due" : "No team to compare"
+    @ViewBuilder private var rateLine: some View {
+        if let mine {
+            let due = mine.onTime + mine.late + mine.missed
+            let missed = Text(mine.missed > 0 ? " · \(mine.missed) missed" : "").foregroundStyle(.orange)
+            Text("\(Text("\(mine.onTime)/\(due) on time").foregroundStyle(.secondary))\(missed)")
         }
-        return "\(rankText(rank, of: benchmark.cohort)) · Top \(top)%"
+    }
+
+    @ViewBuilder private var rankPill: some View {
+        if let rank = benchmark.rank, let top = benchmark.topPercent {
+            Text(rankText(rank, of: benchmark.cohort))
+                .monospacedDigit()
+                .lineLimit(1)
+                .padding(.horizontal, 6)
+                .padding(.vertical, 1)
+                .background(top <= 25 ? AnyShapeStyle(Color.green.opacity(0.22)) : AnyShapeStyle(.fill.tertiary), in: Capsule())
+        } else {
+            Text(metric == .responseRate ? "No requests due" : "Unranked").foregroundStyle(.tertiary).lineLimit(1)
+        }
+    }
+
+    private var tooltip: String {
+        var lines = ["\(metric.title): \(mine.map(metric.text) ?? "—"), team median \(metric.format(benchmark.median))"]
+        if let rank = benchmark.rank, let top = benchmark.topPercent { lines.append("\(rankText(rank, of: benchmark.cohort)) · Top \(top)%") }
+        if metric == .responseRate, let mine {
+            lines.append("\(mine.onTime) of \(mine.onTime + mine.late + mine.missed) within 1 business day, \(mine.late) late, \(mine.missed) missed")
+            lines.append("\(mine.pending) pending")
+            lines.append("Your median response: \(StatsMetric.ownSpeed.text(mine))")
+        }
+        return lines.joined(separator: "\n")
     }
 }
 
-/// Everyone in the teams with the period's numbers, sortable by any column (click again to reverse), with your row
-/// highlighted.
+/// Everyone in the teams with the period's numbers in right-aligned columns of one width, sortable by any column (click
+/// again to reverse), on alternating row shades with your row highlighted.
 private struct LeaderboardView: View {
     private static let column: CGFloat = 96
 
@@ -685,8 +728,10 @@ private struct LeaderboardView: View {
                         isAscending = metric == sort ? !isAscending : metric.isLowerBetter
                         sort = metric
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: 3) {
                             Text(metric.title)
+                                .multilineTextAlignment(.trailing)
+                                .lineLimit(2)
                             Image(systemName: isAscending ? "chevron.up" : "chevron.down")
                                 .font(.caption2.weight(.bold))
                                 .opacity(metric == sort ? 1 : 0)
@@ -697,11 +742,11 @@ private struct LeaderboardView: View {
                     .buttonStyle(.plain)
                 }
             }
-            .font(.callout.weight(.semibold))
+            .font(.caption.weight(.semibold))
             .foregroundStyle(.secondary)
             .padding(.horizontal, 10)
             .padding(.bottom, 4)
-            ForEach(leaderboard(rows, by: sort, isAscending: isAscending), id: \.login) { row in
+            ForEach(Array(leaderboard(rows, by: sort, isAscending: isAscending).enumerated()), id: \.element.login) { position, row in
                 HStack(spacing: 0) {
                     Text(row.login == me ? "\(row.login) (you)" : row.login)
                         .fontWeight(row.login == me ? .semibold : .regular)
@@ -713,8 +758,8 @@ private struct LeaderboardView: View {
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
-                    row.login == me ? Color.accentColor.opacity(0.18) : Color.clear,
-                    in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    row.login == me ? Color.accentColor.opacity(0.18) : position.isMultiple(of: 2) ? Color.primary.opacity(0.035) : Color.clear,
+                    in: RoundedRectangle(cornerRadius: 6, style: .continuous)
                 )
             }
         }

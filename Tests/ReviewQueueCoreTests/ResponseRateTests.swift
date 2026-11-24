@@ -145,10 +145,10 @@ import Testing
     @Test func theTrendsLastPointMatchesTheCardsForEveryMetric() {
         let demoNow = Date(timeIntervalSince1970: 1_800_000_000)
         let demo = DemoData(now: demoNow)
-        let history = demo.reviewHistory.counted(demo.settings)
+        let index = StatsIndex(history: demo.reviewHistory.counted(demo.settings), now: demoNow, calendar: .current)
         for period in StatsPeriod.allCases {
-            let report = StatsReport(history: history, period: period, offset: 0, cycles: demo.cycles, now: demoNow, calendar: .current)
-            let last = trend(period, endingAt: 0, history: history, cycles: demo.cycles, now: demoNow, calendar: .current).last
+            let report = StatsReport(index: index, period: period, offset: 0, cycles: demo.cycles)
+            let last = trend(period, endingAt: 0, index: index, cycles: demo.cycles).last
             for metric in StatsMetric.allCases {
                 #expect(last.flatMap { $0.mine.flatMap(metric.value) } == report.mine.flatMap(metric.value))
                 #expect(last?.benchmark(metric) == report.benchmark(metric))
