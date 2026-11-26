@@ -80,7 +80,7 @@ public actor GitHubClient {
     private static let historyPage = 25
     private static let historyRateFloor = 200
     private static let requestedReviewer = "requestedReviewer { ... on User { login } ... on Team { slug organization { login } } }"
-    private static let historyFields = "number createdAt updatedAt mergedAt closedAt author { login __typename } timelineItems(first: 100, itemTypes: [READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) { nodes { __typename ... on ReadyForReviewEvent { createdAt } ... on ReviewRequestedEvent { createdAt \(requestedReviewer) } ... on ReviewRequestRemovedEvent { createdAt \(requestedReviewer) } } } reviews(first: 100) { nodes { author { login __typename } state submittedAt } }"
+    private static let historyFields = "number createdAt updatedAt mergedAt closedAt mergedBy { login } closedEvents: timelineItems(last: 1, itemTypes: [CLOSED_EVENT]) { nodes { ... on ClosedEvent { actor { login } } } } author { login __typename } timelineItems(first: 100, itemTypes: [READY_FOR_REVIEW_EVENT, REVIEW_REQUESTED_EVENT, REVIEW_REQUEST_REMOVED_EVENT]) { nodes { __typename ... on ReadyForReviewEvent { createdAt } ... on ReviewRequestedEvent { createdAt \(requestedReviewer) } ... on ReviewRequestRemovedEvent { createdAt \(requestedReviewer) } } } reviews(first: 100) { nodes { author { login __typename } state submittedAt } }"
     private static let queueFragment = """
         fragment D on PullRequest {
           headRefOid

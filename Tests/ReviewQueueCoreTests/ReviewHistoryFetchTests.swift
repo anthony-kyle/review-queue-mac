@@ -28,7 +28,7 @@ import Testing
     @Test func historyFromAnotherSchemaIsDroppedSoItIsFetchedAgain() throws {
         let old = #"{"me":"me","members":[],"fetchedAt":{},"prs":[]}"#
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(ReviewHistory.self, from: Data(old.utf8)) }
-        let older = #"{"schema":1,"me":"me","members":[],"teamMembers":{},"fetchedAt":{},"prs":[]}"#
+        let older = #"{"schema":2,"me":"me","members":[],"teamMembers":{},"fetchedAt":{},"prs":[]}"#
         #expect(throws: DecodingError.self) { try JSONDecoder().decode(ReviewHistory.self, from: Data(older.utf8)) }
         let history = ReviewHistory(me: "me", teamMembers: teams, prs: [pr(merged: "2026-11-03T00:00:00Z", requests: [HistoryRequest(team: "acme/web", at: at("2026-11-02T10:00:00Z"))], removals: [HistoryRequest(reviewer: "me", at: at("2026-11-02T11:00:00Z"))])])
         let encoded = try JSONEncoder().encode(history)
@@ -53,6 +53,7 @@ import Testing
     @Test func teamRequestsRemovalsAndEndTimesParse() throws {
         let json = #"""
         {"number":7,"createdAt":"2026-11-02T09:00:00Z","updatedAt":"2026-11-03T00:00:00Z","mergedAt":"2026-11-03T00:00:00Z","closedAt":"2026-11-03T00:00:00Z",
+         "mergedBy":{"login":"ana"},"closedEvents":{"nodes":[{"actor":{"login":"ana"}}]},
          "author":{"login":"ana","__typename":"User"},
          "timelineItems":{"nodes":[
            {"__typename":"ReviewRequestedEvent","createdAt":"2026-11-02T10:00:00Z","requestedReviewer":{"slug":"web","organization":{"login":"acme"}}},
@@ -69,6 +70,8 @@ import Testing
         #expect(parsed.removals == [HistoryRequest(reviewer: "me", at: at("2026-11-02T11:00:00Z")), HistoryRequest(team: "acme/web", at: at("2026-11-02T12:00:00Z"))])
         #expect(parsed.mergedAt == at("2026-11-03T00:00:00Z"))
         #expect(parsed.endedAt == at("2026-11-03T00:00:00Z"))
+        #expect(parsed.mergedBy == "ana")
+        #expect(parsed.closedBy == "ana")
     }
 }
 

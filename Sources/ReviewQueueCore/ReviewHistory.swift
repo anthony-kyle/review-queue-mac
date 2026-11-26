@@ -41,10 +41,10 @@ public struct HistoryRequest: Codable, Equatable, Sendable {
     }
 }
 
-/// A PR in a team repo with what review counts and response times need: who opened it and whether GitHub called them a
-/// bot, when it opened, was last marked ready and was merged or closed, which review requests were made and removed and
-/// when, and every submitted review. `repo` is `owner/name`. `authorIsBot` is nil in caches written before it was
-/// recorded; `author` then decides on its own.
+/// A PR in a team repo with what review counts, response times and completions need: who opened it and whether GitHub
+/// called them a bot, when it opened, was last marked ready and was merged or closed and by whom (`closedBy` is the
+/// actor of its last close), which review requests were made and removed and when, and every submitted review. `repo`
+/// is `owner/name`. `authorIsBot` is nil in caches written before it was recorded; `author` then decides on its own.
 public struct HistoryPr: Codable, Equatable, Sendable {
     public let repo: String
     public let number: Int
@@ -55,6 +55,8 @@ public struct HistoryPr: Codable, Equatable, Sendable {
     public let readyAt: Date?
     public let mergedAt: Date?
     public let closedAt: Date?
+    public let mergedBy: String?
+    public let closedBy: String?
     public let requests: [HistoryRequest]
     public let removals: [HistoryRequest]
     public let reviews: [HistoryReview]
@@ -69,6 +71,8 @@ public struct HistoryPr: Codable, Equatable, Sendable {
         readyAt: Date? = nil,
         mergedAt: Date? = nil,
         closedAt: Date? = nil,
+        mergedBy: String? = nil,
+        closedBy: String? = nil,
         requests: [HistoryRequest] = [],
         removals: [HistoryRequest] = [],
         reviews: [HistoryReview] = []
@@ -82,6 +86,8 @@ public struct HistoryPr: Codable, Equatable, Sendable {
         self.readyAt = readyAt
         self.mergedAt = mergedAt
         self.closedAt = closedAt
+        self.mergedBy = mergedBy
+        self.closedBy = closedBy
         self.requests = requests
         self.removals = removals
         self.reviews = reviews
@@ -92,9 +98,13 @@ public struct HistoryPr: Codable, Equatable, Sendable {
     /// Whether the statistics count this PR: by a human, or by a bot `settings` allows. GitHub's GraphQL names bots
     /// without `[bot]`, so a missing `authorIsBot` falls back to the login on its own.
     public func isCounted(_ settings: QueueSettings) -> Bool {
-        let author = Author(login: author, typename: authorIsBot == true ? "Bot" : "User")
-        return !isBot(author) || isAllowedBot(author, settings)
+        !isBotAuthored || isAllowedBot(authorRef, settings)
     }
+
+    /// Whether a bot opened the PR, by GitHub's account type or, when that wasn't recorded, the login.
+    public var isBotAuthored: Bool { isBot(authorRef) }
+
+    private var authorRef: Author { Author(login: author, typename: authorIsBot == true ? "Bot" : "User") }
 
     /// When the PR became reviewable: its last ready-for-review event, else its creation.
     public var readyTime: Date { readyAt ?? createdAt }
@@ -108,7 +118,7 @@ public struct HistoryPr: Codable, Equatable, Sendable {
 /// retention window. `completedAt` is the last refresh that reached every repo, which decides staleness. A cache
 /// written under another `schema` fails to decode, so it is dropped and fetched again in full.
 public struct ReviewHistory: Codable, Equatable, Sendable {
-    public static let schema = 2
+    public static let schema = 3
     static let overlap: TimeInterval = 10 * 60
 
     public var me: String?
@@ -222,6 +232,8 @@ struct HistoryNode: Decodable, Sendable {
     let updatedAt: String
     var mergedAt: String?
     var closedAt: String?
+    var mergedBy: Author?
+    var closedEvents: Nodes<ClosedEventNode>?
     let author: Author?
     let timelineItems: Nodes<TimelineNode>
     let reviews: Nodes<ReviewNode>
@@ -247,8 +259,8 @@ struct TimelineNode: Decodable, Sendable {
 }
 
 /// A history page's PR as a `HistoryPr`, or nil when its times don't parse. The ready time is the last ready-for-review
-/// event; review requests and their removals keep users and teams. Reviews without an author or submission time
-/// (pending drafts) are dropped.
+/// event; review requests and their removals keep users and teams; who closed it is the actor of its last close event.
+/// Reviews without an author or submission time (pending drafts) are dropped.
 func historyPr(_ node: HistoryNode, repo: String) -> HistoryPr? {
     guard let createdAt = isoDate(node.createdAt), let updatedAt = isoDate(node.updatedAt) else { return nil }
     let events = node.timelineItems.nodes
@@ -262,6 +274,8 @@ func historyPr(_ node: HistoryNode, repo: String) -> HistoryPr? {
         readyAt: events.filter { $0.typename == "ReadyForReviewEvent" }.compactMap { $0.createdAt.flatMap(isoDate) }.max(),
         mergedAt: node.mergedAt.flatMap(isoDate),
         closedAt: node.closedAt.flatMap(isoDate),
+        mergedBy: node.mergedBy?.login,
+        closedBy: node.closedEvents?.nodes.last?.actor?.login,
         requests: events.filter { $0.typename == "ReviewRequestedEvent" }.compactMap(\.request),
         removals: events.filter { $0.typename == "ReviewRequestRemovedEvent" }.compactMap(\.request),
         reviews: node.reviews.nodes.compactMap { review in

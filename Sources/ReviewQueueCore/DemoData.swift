@@ -165,9 +165,10 @@ private let demoReviewers = [
 /// demo repos, asked of the web team as a whole or of teammates by name, picked up at each one's own rate and speed,
 /// mostly approving, sometimes requesting changes and approving the next day. Some named requests go unanswered, some
 /// PRs sit three days or more before anyone looks, PRs merge a while after their last review, and PRs nobody reviews are
-/// closed after a while. PRs from more than six months ago sit and linger longest, so the backlog of PRs waiting for
-/// review shrinks towards now. A fixed seed keeps it the same on every run; times are offsets from `now`, and anything
-/// that would land after `now` is left out.
+/// closed after a while; most authors merge or close their own, but every fourth merge is by its first approver and
+/// you close every third abandoned PR. PRs from more than six months ago sit and linger longest, so the backlog of PRs
+/// waiting for review shrinks towards now. A fixed seed keeps it the same on every run; times are offsets from `now`, and
+/// anything that would land after `now` is left out.
 private func demoReviewHistory(now: Date) -> ReviewHistory {
     var random = SplitMix(seed: 2026)
     var numbers: [String: Int] = [:]
@@ -217,6 +218,8 @@ private func demoReviewHistory(now: Date) -> ReviewHistory {
                 readyAt: ready.flatMap { $0 <= now ? $0 : nil },
                 mergedAt: merged,
                 closedAt: closed,
+                mergedBy: merged == nil ? nil : number.isMultiple(of: 4) ? reviews.first { $0.state == "APPROVED" }?.author ?? author : author,
+                closedBy: closed == nil || merged != nil ? nil : number.isMultiple(of: 3) ? DemoData.me : author,
                 requests: requests.filter { $0.at <= now },
                 reviews: reviews
             ))
