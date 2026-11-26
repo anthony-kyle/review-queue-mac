@@ -128,7 +128,7 @@ import Testing
 
     @Test func ownSpeedIsUnrankedAndOnlyFromAnsweredRequests() {
         #expect(!StatsMetric.ownSpeed.isRanked)
-        #expect(StatsMetric.allCases.filter(\.isRanked) == [.reviews, .approved, .changesRequested, .responseRate, .firstResponses, .unblocked])
+        #expect(StatsMetric.allCases.filter(\.isRanked) == [.reviews, .approved, .changesRequested, .completed, .responseRate, .firstResponses, .unblocked, .merged, .closed])
         #expect(StatsMetric.ownSpeed.trendTitle == "Your response time")
         let november = DateInterval(start: at("2026-11-01T00:00:00Z"), end: at("2026-12-01T00:00:00Z"))
         let prs = [

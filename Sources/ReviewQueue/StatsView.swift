@@ -22,7 +22,7 @@ struct StatsView: View {
 }
 
 /// The statistics page on one grid: every section shares the same 24pt inset and full width. From the top: the title
-/// bar with Refresh, the period controls that drive everything below, the period's graph, one row of equal-height
+/// bar with Refresh, the period controls that drive everything below, the period's graph, two rows of equal-height
 /// metric cards, and one panel with the trend or the leaderboard (as saved in Settings) and the trend's metric menu.
 /// Until a period is picked it follows the default: Sprint while it is offered and a cycle is running, else Month, so
 /// it switches to Sprint once cycles arrive. Sprint is only listed while offered.
@@ -72,13 +72,17 @@ struct StatsContent: View {
                 }
             }
             PeriodGraphView(graph: report.graph, title: title, calendar: calendar)
-            HStack(alignment: .top, spacing: 8) {
-                ForEach(StatsMetric.allCases.filter(\.isRanked)) { metric in
-                    MetricCard(metric: metric, mine: report.mine, benchmark: report.benchmark(metric))
-                        .frame(maxHeight: .infinity, alignment: .top)
+            VStack(spacing: 8) {
+                ForEach(cardRows, id: \.self) { row in
+                    HStack(alignment: .top, spacing: 8) {
+                        ForEach(row) { metric in
+                            MetricCard(metric: metric, mine: report.mine, benchmark: report.benchmark(metric))
+                                .frame(maxHeight: .infinity, alignment: .top)
+                        }
+                    }
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .fixedSize(horizontal: false, vertical: true)
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Picker("Panel", selection: settingsBinding(model, \.statsPanel)) {
@@ -116,6 +120,13 @@ struct StatsContent: View {
         }
         .frame(maxWidth: .infinity)
         .fixedSize(horizontal: false, vertical: true)
+    }
+
+    /// The cards in two rows: what you got done (reviews, approvals, changes requested, PRs completed), then how you
+    /// respond (response rate, first responses, unblocked).
+    private var cardRows: [[StatsMetric]] {
+        let cards = StatsMetric.allCases.filter(\.isCard)
+        return [Array(cards.prefix(4)), Array(cards.dropFirst(4))]
     }
 
     private var header: some View {
@@ -651,8 +662,8 @@ private struct DayCell: View {
 
 /// One ranked metric as a compact card: a one-line title, your value, and one comparison line with the team median and
 /// your rank as a pill, tinted green when you're in the top quarter. Response rate adds one line of requests answered
-/// on time and missed, and keeps your own median response and pending count in its tooltip, so every card stays the
-/// same height.
+/// on time and missed, and keeps your own median response and pending count in its tooltip; PRs completed adds merged
+/// and closed, with whose PRs they were in its tooltip. Every card in a row stays the same height.
 private struct MetricCard: View {
     let metric: StatsMetric
     let mine: ReviewerStats?
@@ -670,6 +681,13 @@ private struct MetricCard: View {
                 .monospacedDigit()
             if metric == .responseRate {
                 rateLine.font(.caption2).lineLimit(1).minimumScaleFactor(0.75)
+            }
+            if metric == .completed, let mine {
+                Text("\(mine.merged) merged · \(mine.closed) closed")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .lineLimit(1)
             }
             HStack(spacing: 6) {
                 Text("Team \(metric.format(benchmark.median))")
@@ -715,6 +733,9 @@ private struct MetricCard: View {
             lines.append("\(mine.pending) pending")
             lines.append("Your median response: \(StatsMetric.ownSpeed.text(mine))")
         }
+        if metric == .completed, let mine {
+            lines.append(CompletionAuthor.allCases.map { "\(mine.completedByAuthor[$0] ?? 0) \($0.label)" }.joined(separator: " · "))
+        }
         return lines.joined(separator: "\n")
     }
 }
@@ -722,7 +743,7 @@ private struct MetricCard: View {
 /// Everyone in the teams with the period's numbers in right-aligned columns of one width, sortable by any column (click
 /// again to reverse), on alternating row shades with your row highlighted.
 private struct LeaderboardView: View {
-    private static let column: CGFloat = 96
+    private static let column: CGFloat = 78
 
     let rows: [ReviewerStats]
     let me: String?

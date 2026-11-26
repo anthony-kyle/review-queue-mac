@@ -50,7 +50,8 @@ public func periodInterval(_ period: StatsPeriod, offset: Int = 0, containing da
 /// One reviewer's numbers for a period. `reviews` counts distinct PR-days. Review requests to this reviewer (see
 /// `opportunities`) count as `onTime`, `late` or `missed`, or `pending` while their deadline is ahead; `responseTimes`
 /// holds the time to first review on each request they answered. `firstResponses` counts PRs they were asked on and
-/// reviewed first; `unblocked` counts PRs they were first to review after they had waited `unblockedWait`.
+/// reviewed first; `unblocked` counts PRs they were first to review after they had waited `unblockedWait`. `merged` and
+/// `closed` count PRs they merged or closed unmerged, with `completedByAuthor` splitting both by whose PR it was.
 public struct ReviewerStats: Equatable, Sendable {
     public let login: String
     public var reviews = 0
@@ -63,6 +64,9 @@ public struct ReviewerStats: Equatable, Sendable {
     public var responseTimes: [TimeInterval] = []
     public var firstResponses = 0
     public var unblocked = 0
+    public var merged = 0
+    public var closed = 0
+    public var completedByAuthor: [CompletionAuthor: Int] = [:]
 
     public init(login: String) {
         self.login = login
@@ -75,12 +79,39 @@ public struct ReviewerStats: Equatable, Sendable {
     }
 
     public var medianResponse: TimeInterval? { median(responseTimes) }
+
+    public var completed: Int { merged + closed }
+}
+
+/// Whose PR a reviewer merged or closed: their own, a teammate's (anyone else in the cohort), a bot's (only allowed bots'
+/// PRs are counted at all), or someone else's.
+public enum CompletionAuthor: String, CaseIterable, Sendable {
+    case own, teammate, other, bot
+
+    public var label: String {
+        switch self {
+        case .own: "yours"
+        case .teammate: "teammates'"
+        case .other: "others'"
+        case .bot: "bots'"
+        }
+    }
+}
+
+/// Who completed a PR and when: whoever merged it, at the merge, or for a PR closed unmerged, whoever closed it last, at
+/// that close. Nil while open or when GitHub names no one.
+func completion(_ pr: HistoryPr) -> (actor: String, at: Date, isMerged: Bool)? {
+    if let at = pr.mergedAt {
+        return pr.mergedBy.map { ($0, at, true) }
+    }
+    guard let at = pr.closedAt, let actor = pr.closedBy else { return nil }
+    return (actor, at, false)
 }
 
 /// What the statistics compare, with how each reads from a reviewer's stats. Every metric but your own response time is
 /// ranked, higher being better; own speed is for you alone and sorts fastest first.
 public enum StatsMetric: String, CaseIterable, Identifiable, Sendable {
-    case reviews, approved, changesRequested, responseRate, firstResponses, unblocked, ownSpeed
+    case reviews, approved, changesRequested, completed, responseRate, firstResponses, unblocked, merged, closed, ownSpeed
 
     public var id: String { rawValue }
 
@@ -92,6 +123,9 @@ public enum StatsMetric: String, CaseIterable, Identifiable, Sendable {
         case .responseRate: "Response rate"
         case .firstResponses: "First responses"
         case .unblocked: "Unblocked"
+        case .completed: "PRs completed"
+        case .merged: "Merged"
+        case .closed: "Closed"
         case .ownSpeed: "Median response"
         }
     }
@@ -103,6 +137,9 @@ public enum StatsMetric: String, CaseIterable, Identifiable, Sendable {
 
     public var isRanked: Bool { self != .ownSpeed }
 
+    /// Whether the metric has its own card; merged and closed are folded into PRs completed.
+    public var isCard: Bool { isRanked && self != .merged && self != .closed }
+
     public var isLowerBetter: Bool { self == .ownSpeed }
 
     public func value(_ stats: ReviewerStats) -> Double? {
@@ -113,6 +150,9 @@ public enum StatsMetric: String, CaseIterable, Identifiable, Sendable {
         case .responseRate: stats.responseRate
         case .firstResponses: Double(stats.firstResponses)
         case .unblocked: Double(stats.unblocked)
+        case .completed: Double(stats.completed)
+        case .merged: Double(stats.merged)
+        case .closed: Double(stats.closed)
         case .ownSpeed: stats.medianResponse
         }
     }
@@ -261,13 +301,16 @@ public func dailyReviewCounts(_ prs: [HistoryPr], reviewer: String, calendar: Ca
 
 /// What period stats need from each PR of a history, worked out once so every period and trend point only filters by
 /// time: counted reviews by reviewer, everyone's request opportunity (deadlines and outcomes as of `now`), the first
-/// responder and the unblocker, plus your reviews per day for the graph.
+/// responder, the unblocker and who completed it, plus your reviews per day for the graph.
 public struct StatsIndex: Sendable {
     struct Entry: Sendable {
         let reviews: [String: [HistoryReview]]
         let opportunities: [Opportunity]
         let firstResponder: HistoryReview?
         let unblocker: HistoryReview?
+        let completion: (actor: String, at: Date, isMerged: Bool)?
+        let author: String
+        let isBotAuthored: Bool
     }
 
     public let history: ReviewHistory
@@ -285,7 +328,10 @@ public struct StatsIndex: Sendable {
                 reviews: Dictionary(grouping: countedReviews(pr), by: \.author),
                 opportunities: opportunities(pr, teams: history.teamMembers, now: now, calendar: calendar),
                 firstResponder: firstResponder(pr, teams: history.teamMembers),
-                unblocker: unblocker(pr)
+                unblocker: unblocker(pr),
+                completion: completion(pr),
+                author: pr.author,
+                isBotAuthored: pr.isBotAuthored
             )
         }
         dailyCounts = history.me.map { dailyReviewCounts(history.prs, reviewer: $0, calendar: calendar) } ?? [:]
@@ -313,6 +359,13 @@ func reviewerStats(_ index: StatsIndex, in interval: DateInterval, reviewers: [S
         }
         if let first = entry.firstResponder, interval.holds(first.submittedAt) { stats[first.author]?.firstResponses += 1 }
         if let first = entry.unblocker, interval.holds(first.submittedAt) { stats[first.author]?.unblocked += 1 }
+        if let done = entry.completion, stats[done.actor] != nil, interval.holds(done.at) {
+            if done.isMerged { stats[done.actor]?.merged += 1 } else { stats[done.actor]?.closed += 1 }
+            let whose: CompletionAuthor = entry.author == done.actor ? .own
+                : entry.isBotAuthored ? .bot
+                : stats[entry.author] != nil ? .teammate : .other
+            stats[done.actor]?.completedByAuthor[whose, default: 0] += 1
+        }
     }
     return unique(reviewers).compactMap { stats[$0] }
 }
