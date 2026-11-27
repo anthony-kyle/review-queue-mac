@@ -78,14 +78,18 @@ import Testing
         #expect(try !decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isOthersChangesRequestedShown":false}"#).isOthersChangesRequestedShown)
     }
 
-    @Test func blockPrefsSavedBeforeGroupingAreUngrouped() throws {
+    @Test func blockPrefsSavedBeforeGroupingGroupByAge() throws {
         let decode = { (json: String) in try JSONDecoder().decode(BlockPrefs.self, from: Data(json.utf8)) }
-        #expect(try !decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isOthersChangesRequestedShown":true}"#).isGroupedByAuthor)
-        #expect(try decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isGroupedByAuthor":true}"#).isGroupedByAuthor)
-        #expect(!blockPrefsOf(QueueSettings(), .needs).isGroupedByAuthor)
+        #expect(try decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isOthersChangesRequestedShown":true}"#).grouping == .age)
+        #expect(blockPrefsOf(QueueSettings(), .needs).grouping == .age)
+        for mode in BlockGrouping.allCases {
+            let prefs = BlockPrefs(sort: .oldest, isOthersApprovedShown: false, isOthersChangesRequestedShown: false, grouping: mode)
+            #expect(try JSONDecoder().decode(BlockPrefs.self, from: JSONEncoder().encode(prefs)) == prefs)
+            #expect(try decode(#"{"sort":"oldest","isOthersApprovedShown":true,"grouping":"\#(mode.rawValue)"}"#).grouping == mode)
+        }
     }
 
-    @Test func authorGroupsFollowTheBlockOrder() {
+    @Test func prGroupsFollowTheBlockOrder() {
         let prs = [
             makePr(1, author: "bob"),
             makePr(2, author: "alice"),
@@ -93,10 +97,19 @@ import Testing
             makePr(4, author: "carol"),
             makePr(5, author: "alice"),
         ]
-        let groups = authorGroups(prs, by: \.author)
-        #expect(groups.map(\.author) == ["bob", "alice", "carol"])
+        let groups = prGroups(prs, by: \.author, untitled: "No author")
+        #expect(groups.map(\.title) == ["bob", "alice", "carol"])
         #expect(groups.map { $0.prs.map(\.number) } == [[1, 3], [2, 5], [4]])
-        #expect(authorGroups([QueuePr](), by: \.author).isEmpty)
+        #expect(prGroups([QueuePr](), by: \.author, untitled: "No author").isEmpty)
+    }
+
+    @Test func prGroupsPutKeylessPrsInOneTrailingGroup() {
+        let stories = [1: "ENG-7", 3: "ENG-2", 4: "ENG-7"]
+        let groups = prGroups((1...5).map { makePr($0) }, by: { stories[$0.number] }, untitled: "No story")
+        #expect(groups.map(\.key) == ["ENG-7", "ENG-2", nil])
+        #expect(groups.map(\.title) == ["ENG-7", "ENG-2", "No story"])
+        #expect(groups.map { $0.prs.map(\.number) } == [[1, 4], [3], [2, 5]])
+        #expect(prGroups([makePr(1)], by: { _ in nil }, untitled: "No story").map(\.title) == ["No story"])
     }
 
     @Test func everyBlockIsPresentEvenWhenEmpty() {
@@ -130,7 +143,7 @@ import Testing
         #expect(settings.repoAccess == .owned)
         #expect(settings.repeatHighReminders)
         var roundTrip = settings
-        roundTrip.blockPrefs[.low] = BlockPrefs(sort: .newest, isOthersApprovedShown: true, isOthersChangesRequestedShown: true, isGroupedByAuthor: true)
+        roundTrip.blockPrefs[.low] = BlockPrefs(sort: .newest, isOthersApprovedShown: true, isOthersChangesRequestedShown: true, grouping: .story)
         #expect(try JSONDecoder().decode(QueueSettings.self, from: JSONEncoder().encode(roundTrip)) == roundTrip)
     }
 
