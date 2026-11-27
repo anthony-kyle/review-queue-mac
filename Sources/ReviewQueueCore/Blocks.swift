@@ -15,11 +15,11 @@ public func blockOf(_ pr: QueuePr, _ settings: QueueSettings) -> Block {
     return .needs
 }
 
-/// A block's sort, others'-review filters and author grouping. Only High priority shows PRs someone else already
+/// A block's sort, others'-review filters and grouping. Only High priority shows PRs someone else already
 /// approved or requested changes on by default, since those still need you there; elsewhere another decisive review
 /// usually means your review isn't the blocker.
 public func blockPrefsOf(_ settings: QueueSettings, _ block: Block) -> BlockPrefs {
-    settings.blockPrefs[block] ?? BlockPrefs(sort: .oldest, isOthersApprovedShown: block == .high, isOthersChangesRequestedShown: block == .high, isGroupedByAuthor: false)
+    settings.blockPrefs[block] ?? BlockPrefs(sort: .oldest, isOthersApprovedShown: block == .high, isOthersChangesRequestedShown: block == .high)
 }
 
 public extension QueueSettings {
@@ -65,25 +65,31 @@ public struct BlockList<Pr: TrackedPr>: Equatable, Sendable {
     public static var empty: BlockList { BlockList(shown: []) }
 }
 
-/// One author's PRs within a block, in the block's order.
-public struct AuthorGroup<Pr: TrackedPr>: Equatable, Identifiable, Sendable {
-    public let author: String
+/// One group of a block's PRs, in the block's order. `key` is nil for the group of PRs that had no key.
+public struct PrGroup<Pr: TrackedPr>: Equatable, Identifiable, Sendable {
+    public let key: String?
+    public let title: String
     public let prs: [Pr]
 
-    public var id: String { author }
+    public var id: String? { key }
 }
 
-/// A block's PRs grouped by `author`, groups ordered by where each author's first PR sits in `prs` so the block's sort
-/// still decides what comes first.
-public func authorGroups<Pr: TrackedPr>(_ prs: [Pr], by author: (Pr) -> String) -> [AuthorGroup<Pr>] {
+/// A block's PRs grouped by `key`, groups ordered by where each key's first PR sits in `prs` so the block's sort still
+/// decides what comes first. PRs whose key is nil go in one trailing group titled `untitled`.
+public func prGroups<Pr: TrackedPr>(_ prs: [Pr], by key: (Pr) -> String?, untitled: String) -> [PrGroup<Pr>] {
     var order: [String] = []
-    var byAuthor: [String: [Pr]] = [:]
+    var byKey: [String: [Pr]] = [:]
+    var keyless: [Pr] = []
     for pr in prs {
-        let login = author(pr)
-        if byAuthor[login] == nil { order.append(login) }
-        byAuthor[login, default: []].append(pr)
+        guard let value = key(pr) else {
+            keyless.append(pr)
+            continue
+        }
+        if byKey[value] == nil { order.append(value) }
+        byKey[value, default: []].append(pr)
     }
-    return order.map { AuthorGroup(author: $0, prs: byAuthor[$0] ?? []) }
+    let groups = order.map { PrGroup(key: $0, title: $0, prs: byKey[$0] ?? []) }
+    return keyless.isEmpty ? groups : groups + [PrGroup(key: nil, title: untitled, prs: keyless)]
 }
 
 /// PRs marked done by hand, keyed by PR with the `updatedAt` they were marked at. A mark holds only while the PR is

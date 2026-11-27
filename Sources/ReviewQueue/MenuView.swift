@@ -36,10 +36,10 @@ struct MenuView: View {
                         set: { isOpen in if isOpen { model.expanded.insert(block) } else { model.expanded.remove(block) } }
                     ),
                     limit: Binding(get: { model.shownRows[block] ?? AppModel.pageRows }, set: { model.shownRows[block] = $0 }),
-                    grouping: AuthorGrouping(
-                        isOn: Binding(
-                            get: { blockPrefsOf(model.settings, block).isGroupedByAuthor },
-                            set: { isOn in model.update { $0.updateBlockPrefs(block) { $0.isGroupedByAuthor = isOn } } }
+                    grouping: PrGrouping(
+                        mode: Binding(
+                            get: { blockPrefsOf(model.settings, block).grouping },
+                            set: { mode in model.update { $0.updateBlockPrefs(block) { $0.grouping = mode } } }
                         ),
                         author: \.author
                     ),
@@ -159,17 +159,26 @@ struct ScrollingBlocks<Content: View>: View {
     }
 }
 
-/// Whether a block's PRs are grouped by author, and how to read a PR's author.
-struct AuthorGrouping<Pr> {
-    let isOn: Binding<Bool>
+/// A block's grouping mode and how to read a PR's author, which `TrackedPr` doesn't carry.
+struct PrGrouping<Pr: TrackedPr> {
+    let mode: Binding<BlockGrouping>
     let author: (Pr) -> String
+
+    /// The group a PR falls in under the current mode, nil when it has no story or the mode is `.age`.
+    func key(_ pr: Pr) -> String? {
+        switch mode.wrappedValue {
+        case .age: nil
+        case .author: author(pr)
+        case .story: pr.storyId
+        }
+    }
 }
 
 /// One collapsible block with its hidden-count and marked-done lines and paged PR rows in a tight stack, grouped in one
 /// glass container so expanded cards share a sampling region. The marked-done line shows only with an `onUndo`.
-/// The title turns orange while a highlighted block has PRs. With a `grouping` the header gets a group-by-author
-/// toggle; grouped, each author is a collapsed row that opens to all of their cards, unpaged, and which authors are
-/// open lasts only as long as the view.
+/// The title turns orange while a highlighted block has PRs. With a `grouping` the header gets a group-by menu; grouped
+/// by author or story, each group is a collapsed row that opens to all of its cards, unpaged, and which groups are open
+/// lasts only until the view goes or the mode changes.
 struct BlockSection<Pr: TrackedPr, Card: View>: View {
     let title: String
     let style: BlockStyle
@@ -177,11 +186,11 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
     let isHighlighted: Bool
     @Binding var isOpen: Bool
     @Binding var limit: Int
-    let grouping: AuthorGrouping<Pr>?
+    let grouping: PrGrouping<Pr>?
     let hiddenNote: String?
     let onUndo: (([Pr]) -> Void)?
     @ViewBuilder let card: (Pr) -> Card
-    @State private var openAuthors: Set<String> = []
+    @State private var openGroups: Set<String?> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -203,10 +212,10 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                } else if let grouping, grouping.isOn.wrappedValue {
+                } else if let grouping, grouping.mode.wrappedValue != .age {
                     VStack(alignment: .leading, spacing: 4) {
-                        ForEach(authorGroups(list.shown, by: grouping.author)) { group in
-                            authorGroup(group)
+                        ForEach(prGroups(list.shown, by: grouping.key, untitled: "No \(grouping.mode.wrappedValue.label.lowercased())")) { group in
+                            groupRow(group)
                         }
                     }
                 } else {
@@ -249,46 +258,59 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
             .accessibilityLabel("\(title), \(list.shown.count)")
             .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
             if let grouping {
-                groupToggle(grouping.isOn)
+                groupMenu(grouping.mode)
             }
         }
     }
 
-    private func groupToggle(_ isGrouped: Binding<Bool>) -> some View {
-        let label = isGrouped.wrappedValue ? "Ungroup" : "Group by author"
-        return Button {
-            withAnimation(.snappy) { isGrouped.wrappedValue.toggle() }
+    private func groupMenu(_ mode: Binding<BlockGrouping>) -> some View {
+        let current = mode.wrappedValue
+        let selection = Binding(
+            get: { mode.wrappedValue },
+            set: { newMode in
+                openGroups = []
+                withAnimation(.snappy) { mode.wrappedValue = newMode }
+            }
+        )
+        return Menu {
+            Picker("Group by", selection: selection) {
+                ForEach(BlockGrouping.allCases) { Text($0.label).tag($0) }
+            }
+            .pickerStyle(.inline)
         } label: {
-            Image(systemName: isGrouped.wrappedValue ? "person.2.fill" : "person.2")
+            Image(systemName: current.symbol)
+                .foregroundStyle(current == .age ? Color.secondary : Color.accentColor)
                 .frame(width: 22)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(isGrouped.wrappedValue ? Color.accentColor : Color.secondary)
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
         .font(.callout)
-        .help(label)
-        .accessibilityLabel(label)
+        .help("Group by: \(current.label)")
+        .accessibilityLabel("Group by: \(current.label)")
     }
 
-    private func authorGroup(_ group: AuthorGroup<Pr>) -> some View {
-        let isGroupOpen = openAuthors.contains(group.author)
+    private func groupRow(_ group: PrGroup<Pr>) -> some View {
+        let isGroupOpen = openGroups.contains(group.key)
         return VStack(alignment: .leading, spacing: 4) {
             Button {
                 withAnimation(.snappy) {
-                    if isGroupOpen { openAuthors.remove(group.author) } else { openAuthors.insert(group.author) }
+                    if isGroupOpen { openGroups.remove(group.key) } else { openGroups.insert(group.key) }
                 }
             } label: {
                 HStack(spacing: 8) {
                     DisclosureChevron(isOpen: isGroupOpen)
                         .frame(width: 18)
-                    Text(group.author)
+                    Text(group.title)
                         .font(.callout.weight(.medium))
+                        .foregroundStyle(group.key == nil ? Color.secondary : Color.primary)
                     CountBadge(count: group.prs.count)
                     Spacer()
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("\(group.author), \(group.prs.count)")
+            .accessibilityLabel("\(group.title), \(group.prs.count)")
             .accessibilityValue(isGroupOpen ? "Expanded" : "Collapsed")
             if isGroupOpen {
                 cardStack(group.prs)
@@ -303,6 +325,17 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
                     card(pr)
                 }
             }
+        }
+    }
+}
+
+extension BlockGrouping {
+    /// The header menu's icon for this mode.
+    var symbol: String {
+        switch self {
+        case .age: "clock"
+        case .author: "person.2"
+        case .story: "bookmark"
         }
     }
 }
