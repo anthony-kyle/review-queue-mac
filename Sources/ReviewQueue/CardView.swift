@@ -124,10 +124,7 @@ struct PrRow<Pr: TrackedPr, Details: View, Accessory: View>: View {
             withAnimation(.snappy) { onToggle() }
         } label: {
             HStack(spacing: 8) {
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                DisclosureChevron(isOpen: isExpanded)
                     .frame(width: Self.indent - 8)
                 Text("#\(pr.number) \(pr.title)")
                     .fontWeight(isExpanded ? .semibold : .regular)

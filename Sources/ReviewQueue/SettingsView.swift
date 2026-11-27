@@ -272,11 +272,7 @@ private struct BlockSettings: View {
     }
 
     private func save(_ change: @escaping (inout BlockPrefs) -> Void) {
-        model.update { settings in
-            var prefs = blockPrefsOf(settings, block)
-            change(&prefs)
-            settings.blockPrefs[block] = prefs
-        }
+        model.update { $0.updateBlockPrefs(block, change) }
     }
 }
 

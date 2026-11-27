@@ -78,6 +78,27 @@ import Testing
         #expect(try !decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isOthersChangesRequestedShown":false}"#).isOthersChangesRequestedShown)
     }
 
+    @Test func blockPrefsSavedBeforeGroupingAreUngrouped() throws {
+        let decode = { (json: String) in try JSONDecoder().decode(BlockPrefs.self, from: Data(json.utf8)) }
+        #expect(try !decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isOthersChangesRequestedShown":true}"#).isGroupedByAuthor)
+        #expect(try decode(#"{"sort":"oldest","isOthersApprovedShown":true,"isGroupedByAuthor":true}"#).isGroupedByAuthor)
+        #expect(!blockPrefsOf(QueueSettings(), .needs).isGroupedByAuthor)
+    }
+
+    @Test func authorGroupsFollowTheBlockOrder() {
+        let prs = [
+            makePr(1, author: "bob"),
+            makePr(2, author: "alice"),
+            makePr(3, author: "bob"),
+            makePr(4, author: "carol"),
+            makePr(5, author: "alice"),
+        ]
+        let groups = authorGroups(prs, by: \.author)
+        #expect(groups.map(\.author) == ["bob", "alice", "carol"])
+        #expect(groups.map { $0.prs.map(\.number) } == [[1, 3], [2, 5], [4]])
+        #expect(authorGroups([QueuePr](), by: \.author).isEmpty)
+    }
+
     @Test func everyBlockIsPresentEvenWhenEmpty() {
         #expect(Set(blockLists([], QueueSettings()).keys) == Set(Block.allCases))
     }
@@ -109,7 +130,7 @@ import Testing
         #expect(settings.repoAccess == .owned)
         #expect(settings.repeatHighReminders)
         var roundTrip = settings
-        roundTrip.blockPrefs[.low] = BlockPrefs(sort: .newest, isOthersApprovedShown: true, isOthersChangesRequestedShown: true)
+        roundTrip.blockPrefs[.low] = BlockPrefs(sort: .newest, isOthersApprovedShown: true, isOthersChangesRequestedShown: true, isGroupedByAuthor: true)
         #expect(try JSONDecoder().decode(QueueSettings.self, from: JSONEncoder().encode(roundTrip)) == roundTrip)
     }
 

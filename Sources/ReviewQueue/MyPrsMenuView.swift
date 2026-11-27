@@ -40,6 +40,7 @@ struct MyPrsMenuView: View {
                         set: { isOpen in if isOpen { model.myExpanded.insert(block) } else { model.myExpanded.remove(block) } }
                     ),
                     limit: Binding(get: { model.myShownRows[block] ?? AppModel.pageRows }, set: { model.myShownRows[block] = $0 }),
+                    grouping: nil,
                     hiddenNote: nil,
                     onUndo: nil
                 ) { pr in

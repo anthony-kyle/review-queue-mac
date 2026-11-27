@@ -15,11 +15,20 @@ public func blockOf(_ pr: QueuePr, _ settings: QueueSettings) -> Block {
     return .needs
 }
 
-/// A block's sort and others'-review filters. Only High priority shows PRs someone else already approved or requested
-/// changes on by default, since those still need you there; elsewhere another decisive review usually means your
-/// review isn't the blocker.
+/// A block's sort, others'-review filters and author grouping. Only High priority shows PRs someone else already
+/// approved or requested changes on by default, since those still need you there; elsewhere another decisive review
+/// usually means your review isn't the blocker.
 public func blockPrefsOf(_ settings: QueueSettings, _ block: Block) -> BlockPrefs {
-    settings.blockPrefs[block] ?? BlockPrefs(sort: .oldest, isOthersApprovedShown: block == .high, isOthersChangesRequestedShown: block == .high)
+    settings.blockPrefs[block] ?? BlockPrefs(sort: .oldest, isOthersApprovedShown: block == .high, isOthersChangesRequestedShown: block == .high, isGroupedByAuthor: false)
+}
+
+public extension QueueSettings {
+    /// Applies `change` to a block's prefs, starting from its defaults when it has none saved.
+    mutating func updateBlockPrefs(_ block: Block, _ change: (inout BlockPrefs) -> Void) {
+        var prefs = blockPrefsOf(self, block)
+        change(&prefs)
+        blockPrefs[block] = prefs
+    }
 }
 
 /// PRs a block's filters dropped, by reason. A PR both filters drop counts under each.
@@ -54,6 +63,27 @@ public struct BlockList<Pr: TrackedPr>: Equatable, Sendable {
     public var dismissed: [Pr] = []
 
     public static var empty: BlockList { BlockList(shown: []) }
+}
+
+/// One author's PRs within a block, in the block's order.
+public struct AuthorGroup<Pr: TrackedPr>: Equatable, Identifiable, Sendable {
+    public let author: String
+    public let prs: [Pr]
+
+    public var id: String { author }
+}
+
+/// A block's PRs grouped by `author`, groups ordered by where each author's first PR sits in `prs` so the block's sort
+/// still decides what comes first.
+public func authorGroups<Pr: TrackedPr>(_ prs: [Pr], by author: (Pr) -> String) -> [AuthorGroup<Pr>] {
+    var order: [String] = []
+    var byAuthor: [String: [Pr]] = [:]
+    for pr in prs {
+        let login = author(pr)
+        if byAuthor[login] == nil { order.append(login) }
+        byAuthor[login, default: []].append(pr)
+    }
+    return order.map { AuthorGroup(author: $0, prs: byAuthor[$0] ?? []) }
 }
 
 /// PRs marked done by hand, keyed by PR with the `updatedAt` they were marked at. A mark holds only while the PR is

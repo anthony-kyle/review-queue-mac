@@ -95,21 +95,24 @@ public enum BlockSort: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// A block's sort and others'-review filters. Prefs saved before the changes-requested filter existed take it from the
-/// approvals filter, so a block that showed others' approvals keeps showing others' changes-requests too.
+/// A block's sort, others'-review filters and author grouping. Prefs saved before the changes-requested filter existed
+/// take it from the approvals filter, so a block that showed others' approvals keeps showing others' changes-requests
+/// too; prefs saved before grouping existed are ungrouped.
 public struct BlockPrefs: Codable, Equatable, Sendable {
     public var sort: BlockSort
     public var isOthersApprovedShown: Bool
     public var isOthersChangesRequestedShown: Bool
+    public var isGroupedByAuthor: Bool
 
-    public init(sort: BlockSort, isOthersApprovedShown: Bool, isOthersChangesRequestedShown: Bool) {
+    public init(sort: BlockSort, isOthersApprovedShown: Bool, isOthersChangesRequestedShown: Bool, isGroupedByAuthor: Bool = false) {
         self.sort = sort
         self.isOthersApprovedShown = isOthersApprovedShown
         self.isOthersChangesRequestedShown = isOthersChangesRequestedShown
+        self.isGroupedByAuthor = isGroupedByAuthor
     }
 
     enum CodingKeys: String, CodingKey {
-        case sort, isOthersApprovedShown, isOthersChangesRequestedShown
+        case sort, isOthersApprovedShown, isOthersChangesRequestedShown, isGroupedByAuthor
     }
 
     public init(from decoder: any Decoder) throws {
@@ -117,6 +120,7 @@ public struct BlockPrefs: Codable, Equatable, Sendable {
         sort = try c.decode(BlockSort.self, forKey: .sort)
         isOthersApprovedShown = try c.decode(Bool.self, forKey: .isOthersApprovedShown)
         isOthersChangesRequestedShown = try c.value(.isOthersChangesRequestedShown, or: isOthersApprovedShown)
+        isGroupedByAuthor = try c.value(.isGroupedByAuthor, or: false)
     }
 }
 
