@@ -44,7 +44,7 @@ Run `make install` before turning on Launch at login, since `SMAppService` regis
 
 Open Settings from the review queue's menu bar window and pick your GitHub teams. Open PRs in those teams' repos (owned or writable, your choice) make up the queue, minus your own PRs and bot PRs (unless you list the bot under Allowed bot authors). Both lists refresh together every 15 minutes by default (5, 10, 15, 30 or 60), on wake from sleep, and when you open either menu with data older than the interval. A failure in one list shows on its own menu and leaves the other untouched.
 
-Each review queue block has a group-by-author button beside its chevron. Grouped, the block shows one collapsed row per author with their PR count, ordered by the block's sort, and each row opens to all of that author's PRs instead of paging 10 at a time. The choice is saved per block.
+Each review queue block has a group-by menu beside its chevron: Age, Author or Story. Age, the default, is the plain list in the block's sort, paged 10 at a time. Author and Story show one collapsed row per author or per story id (the one shown on the card) with its PR count, ordered by the block's sort, and each row opens to all of its PRs unpaged. PRs without a story id sit together under "No story" at the end. The choice is saved per block.
 
 Settings are stored as JSON in `~/Library/Application Support/nz.anthonykyle.ReviewQueue/`, next to the notification seen-state of both menus, the Done marks, the acknowledged My PRs comments, the Linear lookup cache, the review statistics history and the registered Linear OAuth client id. The Linear OAuth tokens live in the Keychain.
 

@@ -95,24 +95,39 @@ public enum BlockSort: String, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-/// A block's sort, others'-review filters and author grouping. Prefs saved before the changes-requested filter existed
-/// take it from the approvals filter, so a block that showed others' approvals keeps showing others' changes-requests
-/// too; prefs saved before grouping existed are ungrouped.
+/// How a block lays out its PRs: `age` is the plain sorted, paged list; the others group them into collapsible rows.
+public enum BlockGrouping: String, Codable, CaseIterable, Identifiable, Sendable {
+    case age, author, story
+
+    public var id: String { rawValue }
+
+    public var label: String {
+        switch self {
+        case .age: "Age"
+        case .author: "Author"
+        case .story: "Story"
+        }
+    }
+}
+
+/// A block's sort, others'-review filters and grouping. Prefs saved before the changes-requested filter existed take it
+/// from the approvals filter, so a block that showed others' approvals keeps showing others' changes-requests too;
+/// prefs saved before grouping existed group by age.
 public struct BlockPrefs: Codable, Equatable, Sendable {
     public var sort: BlockSort
     public var isOthersApprovedShown: Bool
     public var isOthersChangesRequestedShown: Bool
-    public var isGroupedByAuthor: Bool
+    public var grouping: BlockGrouping
 
-    public init(sort: BlockSort, isOthersApprovedShown: Bool, isOthersChangesRequestedShown: Bool, isGroupedByAuthor: Bool = false) {
+    public init(sort: BlockSort, isOthersApprovedShown: Bool, isOthersChangesRequestedShown: Bool, grouping: BlockGrouping = .age) {
         self.sort = sort
         self.isOthersApprovedShown = isOthersApprovedShown
         self.isOthersChangesRequestedShown = isOthersChangesRequestedShown
-        self.isGroupedByAuthor = isGroupedByAuthor
+        self.grouping = grouping
     }
 
     enum CodingKeys: String, CodingKey {
-        case sort, isOthersApprovedShown, isOthersChangesRequestedShown, isGroupedByAuthor
+        case sort, isOthersApprovedShown, isOthersChangesRequestedShown, grouping
     }
 
     public init(from decoder: any Decoder) throws {
@@ -120,7 +135,7 @@ public struct BlockPrefs: Codable, Equatable, Sendable {
         sort = try c.decode(BlockSort.self, forKey: .sort)
         isOthersApprovedShown = try c.decode(Bool.self, forKey: .isOthersApprovedShown)
         isOthersChangesRequestedShown = try c.value(.isOthersChangesRequestedShown, or: isOthersApprovedShown)
-        isGroupedByAuthor = try c.value(.isGroupedByAuthor, or: false)
+        grouping = try c.value(.grouping, or: BlockGrouping.age)
     }
 }
 
