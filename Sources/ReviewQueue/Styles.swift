@@ -166,6 +166,18 @@ struct ErrorBanner: View {
     }
 }
 
+/// A disclosure chevron that points right while closed and down while open.
+struct DisclosureChevron: View {
+    let isOpen: Bool
+
+    var body: some View {
+        Image(systemName: "chevron.right")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .rotationEffect(.degrees(isOpen ? 90 : 0))
+    }
+}
+
 /// A count in a small capsule, for block headers.
 struct CountBadge: View {
     let count: Int

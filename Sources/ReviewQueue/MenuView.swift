@@ -36,6 +36,13 @@ struct MenuView: View {
                         set: { isOpen in if isOpen { model.expanded.insert(block) } else { model.expanded.remove(block) } }
                     ),
                     limit: Binding(get: { model.shownRows[block] ?? AppModel.pageRows }, set: { model.shownRows[block] = $0 }),
+                    grouping: AuthorGrouping(
+                        isOn: Binding(
+                            get: { blockPrefsOf(model.settings, block).isGroupedByAuthor },
+                            set: { isOn in model.update { $0.updateBlockPrefs(block) { $0.isGroupedByAuthor = isOn } } }
+                        ),
+                        author: \.author
+                    ),
                     hiddenNote: list.hidden.note,
                     onUndo: { model.restore($0) }
                 ) { pr in
@@ -152,9 +159,17 @@ struct ScrollingBlocks<Content: View>: View {
     }
 }
 
+/// Whether a block's PRs are grouped by author, and how to read a PR's author.
+struct AuthorGrouping<Pr> {
+    let isOn: Binding<Bool>
+    let author: (Pr) -> String
+}
+
 /// One collapsible block with its hidden-count and marked-done lines and paged PR rows in a tight stack, grouped in one
 /// glass container so expanded cards share a sampling region. The marked-done line shows only with an `onUndo`.
-/// The title turns orange while a highlighted block has PRs.
+/// The title turns orange while a highlighted block has PRs. With a `grouping` the header gets a group-by-author
+/// toggle; grouped, each author is a collapsed row that opens to all of their cards, unpaged, and which authors are
+/// open lasts only as long as the view.
 struct BlockSection<Pr: TrackedPr, Card: View>: View {
     let title: String
     let style: BlockStyle
@@ -162,9 +177,11 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
     let isHighlighted: Bool
     @Binding var isOpen: Bool
     @Binding var limit: Int
+    let grouping: AuthorGrouping<Pr>?
     let hiddenNote: String?
     let onUndo: (([Pr]) -> Void)?
     @ViewBuilder let card: (Pr) -> Card
+    @State private var openAuthors: Set<String> = []
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -186,52 +203,106 @@ struct BlockSection<Pr: TrackedPr, Card: View>: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)
-                } else {
-                    GlassEffectContainer(spacing: 0) {
-                        VStack(spacing: 2) {
-                            ForEach(list.shown.prefix(limit)) { pr in
-                                card(pr)
-                            }
+                } else if let grouping, grouping.isOn.wrappedValue {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(authorGroups(list.shown, by: grouping.author)) { group in
+                            authorGroup(group)
                         }
                     }
-                }
-                if list.shown.count > limit {
-                    let remaining = list.shown.count - limit
-                    Button("Show \(min(AppModel.pageRows, remaining)) more of \(remaining)") {
-                        limit += AppModel.pageRows
+                } else {
+                    cardStack(Array(list.shown.prefix(limit)))
+                    if list.shown.count > limit {
+                        let remaining = list.shown.count - limit
+                        Button("Show \(min(AppModel.pageRows, remaining)) more of \(remaining)") {
+                            limit += AppModel.pageRows
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .font(.callout)
-                    .frame(maxWidth: .infinity)
                 }
             }
         }
     }
 
     private var header: some View {
-        Button {
-            isOpen.toggle()
-        } label: {
-            HStack(spacing: 8) {
-                Image(systemName: style.symbol)
-                    .foregroundStyle(style.color)
-                    .frame(width: 18)
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(isHighlighted && !list.shown.isEmpty ? Color.orange : Color.primary)
-                CountBadge(count: list.shown.count)
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .rotationEffect(.degrees(isOpen ? 90 : 0))
-                    .animation(.snappy, value: isOpen)
+        HStack(spacing: 8) {
+            Button {
+                isOpen.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: style.symbol)
+                        .foregroundStyle(style.color)
+                        .frame(width: 18)
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(isHighlighted && !list.shown.isEmpty ? Color.orange : Color.primary)
+                    CountBadge(count: list.shown.count)
+                    Spacer()
+                    DisclosureChevron(isOpen: isOpen)
+                        .animation(.snappy, value: isOpen)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(title), \(list.shown.count)")
+            .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
+            if let grouping {
+                groupToggle(grouping.isOn)
+            }
+        }
+    }
+
+    private func groupToggle(_ isGrouped: Binding<Bool>) -> some View {
+        let label = isGrouped.wrappedValue ? "Ungroup" : "Group by author"
+        return Button {
+            withAnimation(.snappy) { isGrouped.wrappedValue.toggle() }
+        } label: {
+            Image(systemName: isGrouped.wrappedValue ? "person.2.fill" : "person.2")
+                .frame(width: 22)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("\(title), \(list.shown.count)")
-        .accessibilityValue(isOpen ? "Expanded" : "Collapsed")
+        .foregroundStyle(isGrouped.wrappedValue ? Color.accentColor : Color.secondary)
+        .font(.callout)
+        .help(label)
+        .accessibilityLabel(label)
+    }
+
+    private func authorGroup(_ group: AuthorGroup<Pr>) -> some View {
+        let isGroupOpen = openAuthors.contains(group.author)
+        return VStack(alignment: .leading, spacing: 4) {
+            Button {
+                withAnimation(.snappy) {
+                    if isGroupOpen { openAuthors.remove(group.author) } else { openAuthors.insert(group.author) }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    DisclosureChevron(isOpen: isGroupOpen)
+                        .frame(width: 18)
+                    Text(group.author)
+                        .font(.callout.weight(.medium))
+                    CountBadge(count: group.prs.count)
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(group.author), \(group.prs.count)")
+            .accessibilityValue(isGroupOpen ? "Expanded" : "Collapsed")
+            if isGroupOpen {
+                cardStack(group.prs)
+            }
+        }
+    }
+
+    private func cardStack(_ prs: [Pr]) -> some View {
+        GlassEffectContainer(spacing: 0) {
+            VStack(spacing: 2) {
+                ForEach(prs) { pr in
+                    card(pr)
+                }
+            }
+        }
     }
 }
